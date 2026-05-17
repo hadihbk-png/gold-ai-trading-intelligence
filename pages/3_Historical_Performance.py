@@ -111,10 +111,14 @@ else:
         except Exception:
             return ""
 
-    styled = wfv_df.style.applymap(
-        _color_return,
-        subset=["AI Return", "B&H Return", "vs B&H"],
-    )
+    style_cols = ["AI Return", "B&H Return", "vs B&H"]
+    styler = wfv_df.style
+    if hasattr(styler, "map"):
+        styled = styler.map(_color_return, subset=style_cols)
+    elif hasattr(styler, "applymap"):
+        styled = styler.applymap(_color_return, subset=style_cols)
+    else:
+        styled = wfv_df
     st.dataframe(styled, hide_index=True, width="stretch")
 
     # ── Return bar chart ──────────────────────────────────────────────────────
