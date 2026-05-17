@@ -1,0 +1,584 @@
+
+========================================================================
+  DOWNLOADING FULL HISTORY  2014-01-01 – 2025-06-01
+========================================================================
+  2868 bars  (2014-01-02 – 2025-05-30)
+
+========================================================================
+  BUILDING FEATURES ON FULL HISTORY
+========================================================================
+  Feature matrix shape   : (2868, 117)
+  Optuna trials/window   : 100
+  Tune-once mode         : True
+
+
+########################################################################
+  WINDOW 1/6 : 2019  —  Gold bull run (+18%)
+  TEST   : 2019-01-01  →  2020-01-01
+  TRAIN  : 2015-01-01  →  2019-01-01
+  Optuna : 100 trials per study
+########################################################################
+
+  Training bars : 1003
+  Test bars     : 252
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=22.0% SIDE=54.4% UP=23.5%)
+  [    0s]  Optuna tuning – XGBoost regression…
+  [   88s]  Optuna tuning – LightGBM regression…
+  [  171s]  Optuna tuning – CatBoost regression…
+  [  454s]  Optuna tuning – XGBoost classification (class-balanced)…
+  [  690s]  Optuna tuning – LightGBM classification (class-balanced)…
+  [  931s]  Optuna tuning – CatBoost classification (class-balanced)…
+  [  988s]  Training individual regression models…
+  [  995s]  Training individual classification models (class-balanced)…
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\site-packages\joblib\externals\loky\backend\context.py", line 257, in _count_physical_cores
+    cpu_info = subprocess.run(
+               ^^^^^^^^^^^^^^^
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  [ 1008s]  Building regression stacking ensemble (OOF)…
+  [ 1008s]    Stacking regression fold 1/5 – XGBoost
+  [ 1009s]    Stacking regression fold 1/5 – LightGBM
+  [ 1009s]    Stacking regression fold 1/5 – CatBoost
+  [ 1011s]    Stacking regression fold 2/5 – XGBoost
+  [ 1012s]    Stacking regression fold 2/5 – LightGBM
+  [ 1012s]    Stacking regression fold 2/5 – CatBoost
+  [ 1015s]    Stacking regression fold 3/5 – XGBoost
+  [ 1016s]    Stacking regression fold 3/5 – LightGBM
+  [ 1016s]    Stacking regression fold 3/5 – CatBoost
+  [ 1020s]    Stacking regression fold 4/5 – XGBoost
+  [ 1020s]    Stacking regression fold 4/5 – LightGBM
+  [ 1022s]    Stacking regression fold 4/5 – CatBoost
+  [ 1025s]    Stacking regression fold 5/5 – XGBoost
+  [ 1026s]    Stacking regression fold 5/5 – LightGBM
+  [ 1028s]    Stacking regression fold 5/5 – CatBoost
+  [ 1031s]    Retraining L1 XGBoost on full training set
+  [ 1032s]    Retraining L1 LightGBM on full training set
+  [ 1034s]    Retraining L1 CatBoost on full training set
+  [ 1038s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [ 1038s]    Stacking classification fold 1/5 – XGBoost
+  [ 1039s]    Stacking classification fold 1/5 – LightGBM
+  [ 1039s]    Stacking classification fold 1/5 – CatBoost
+  [ 1042s]    Stacking classification fold 2/5 – XGBoost
+  [ 1045s]    Stacking classification fold 2/5 – LightGBM
+  [ 1046s]    Stacking classification fold 2/5 – CatBoost
+  [ 1051s]    Stacking classification fold 3/5 – XGBoost
+  [ 1056s]    Stacking classification fold 3/5 – LightGBM
+  [ 1058s]    Stacking classification fold 3/5 – CatBoost
+  [ 1065s]    Stacking classification fold 4/5 – XGBoost
+  [ 1071s]    Stacking classification fold 4/5 – LightGBM
+  [ 1076s]    Stacking classification fold 4/5 – CatBoost
+  [ 1083s]    Stacking classification fold 5/5 – XGBoost
+  [ 1090s]    Stacking classification fold 5/5 – LightGBM
+  [ 1097s]    Stacking classification fold 5/5 – CatBoost
+  [ 1104s]    Calibrating L1 XGBoost on full training set
+  [ 1113s]    Calibrating L1 LightGBM on full training set
+  [ 1122s]    Calibrating L1 CatBoost on full training set
+  [ 1130s]  Optimising confidence thresholds on OOF data…
+  [ 1130s]  Optimal thresholds: UP>0.360 DOWN>0.370 (profit-proxy score=0.5491)
+  [ 1130s]  Training complete.
+  Hyperparameters saved for reuse in windows 2–6.
+
+  Training complete in 18.8 min
+
+  Classification:
+    Overall accuracy : 58.3%
+    Dir accuracy     : 10.0%  (on 10 signals)
+    DOWN recall      : 2.4%
+    t_up=0.360  t_down=0.370  OOF=0.5491
+
+  Backtest results:
+    Total Return (%)        : 0.24
+    CAGR (%)                : 0.24
+    Sharpe Ratio            : 0.245
+    Sortino Ratio           : 0.252
+    Calmar Ratio            : 0.447
+    Max Drawdown (%)        : -0.54
+    Win Rate (%)            : 50.0
+    Profit Factor           : 1.721
+    Expectancy ($)          : 183.19
+    Total Trades            : 2
+    Buy trades              : 1
+    Sell trades             : 1
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2019                   +0.2%    0.245    0.252   -0.5%    50.0%   1.721       2
+  RSI Strategy              -3.2%   -1.347   -1.460   -4.4%    16.7%   0.435      12
+  MA Crossover              +0.6%    0.222    0.394   -2.5%    41.7%   1.295      12
+  Breakout                  -0.9%   -0.312   -0.412   -3.5%    38.5%   0.902      13
+  Buy & Hold                +2.9%    1.006    2.093   -1.8%    60.0%   2.307      10
+
+
+########################################################################
+  WINDOW 2/6 : 2020 (COVID)  —  COVID crash + V-recovery
+  TEST   : 2020-01-01  →  2021-01-01
+  TRAIN  : 2016-01-01  →  2020-01-01
+  Optuna : skipped (reusing params from window 1)
+########################################################################
+
+  Training bars : 1003
+  Test bars     : 253
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=19.0% SIDE=58.5% UP=22.4%)
+  [    0s]  Using pre-tuned hyperparameters — Optuna skipped.
+  [    0s]  Training individual regression models…
+  [    6s]  Training individual classification models (class-balanced)…
+  [   20s]  Building regression stacking ensemble (OOF)…
+  [   20s]    Stacking regression fold 1/5 – XGBoost
+  [   21s]    Stacking regression fold 1/5 – LightGBM
+  [   21s]    Stacking regression fold 1/5 – CatBoost
+  [   23s]    Stacking regression fold 2/5 – XGBoost
+  [   24s]    Stacking regression fold 2/5 – LightGBM
+  [   24s]    Stacking regression fold 2/5 – CatBoost
+  [   27s]    Stacking regression fold 3/5 – XGBoost
+  [   28s]    Stacking regression fold 3/5 – LightGBM
+  [   28s]    Stacking regression fold 3/5 – CatBoost
+  [   31s]    Stacking regression fold 4/5 – XGBoost
+  [   32s]    Stacking regression fold 4/5 – LightGBM
+  [   34s]    Stacking regression fold 4/5 – CatBoost
+  [   37s]    Stacking regression fold 5/5 – XGBoost
+  [   38s]    Stacking regression fold 5/5 – LightGBM
+  [   40s]    Stacking regression fold 5/5 – CatBoost
+  [   43s]    Retraining L1 XGBoost on full training set
+  [   44s]    Retraining L1 LightGBM on full training set
+  [   46s]    Retraining L1 CatBoost on full training set
+  [   49s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [   49s]    Stacking classification fold 1/5 – XGBoost
+  [   50s]    Stacking classification fold 1/5 – LightGBM
+  [   51s]    Stacking classification fold 1/5 – CatBoost
+  [   54s]    Stacking classification fold 2/5 – XGBoost
+  [   58s]    Stacking classification fold 2/5 – LightGBM
+  [   59s]    Stacking classification fold 2/5 – CatBoost
+  [   65s]    Stacking classification fold 3/5 – XGBoost
+  [   70s]    Stacking classification fold 3/5 – LightGBM
+  [   73s]    Stacking classification fold 3/5 – CatBoost
+  [   80s]    Stacking classification fold 4/5 – XGBoost
+  [   87s]    Stacking classification fold 4/5 – LightGBM
+  [   92s]    Stacking classification fold 4/5 – CatBoost
+  [   99s]    Stacking classification fold 5/5 – XGBoost
+  [  108s]    Stacking classification fold 5/5 – LightGBM
+  [  116s]    Stacking classification fold 5/5 – CatBoost
+  [  123s]    Calibrating L1 XGBoost on full training set
+  [  133s]    Calibrating L1 LightGBM on full training set
+  [  143s]    Calibrating L1 CatBoost on full training set
+  [  150s]  Optimising confidence thresholds on OOF data…
+  [  151s]  Optimal thresholds: UP>0.340 DOWN>0.350 (profit-proxy score=0.5932)
+  [  151s]  Training complete.
+
+  Training complete in 2.5 min
+
+  Classification:
+    Overall accuracy : 39.9%
+    Dir accuracy     : 75.0%  (on 4 signals)
+    DOWN recall      : 3.0%
+    t_up=0.340  t_down=0.350  OOF=0.5932
+
+  Backtest results:
+    Total Return (%)        : 0.53
+    CAGR (%)                : 0.53
+    Sharpe Ratio            : 0.972
+    Sortino Ratio           : 3732.319
+    Calmar Ratio            : 34.248
+    Max Drawdown (%)        : -0.02
+    Win Rate (%)            : 100.0
+    Profit Factor           : 548840000000.0
+    Expectancy ($)          : 548.84
+    Total Trades            : 1
+    Buy trades              : 1
+    Sell trades             : 0
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2020 (COVID)           +0.5%    0.972 3732.319   -0.0%   100.0% 548840000000.000       1
+  RSI Strategy              -1.6%   -0.546   -0.688   -4.1%    25.0%   0.737      12
+  MA Crossover              +1.3%    0.374    0.642   -3.3%    42.9%   1.303      14
+  Breakout                  +1.3%    0.535    0.844   -1.6%    57.1%   1.681       7
+  Buy & Hold                +2.5%    0.712    1.308   -2.6%    50.0%   1.662      12
+
+
+########################################################################
+  WINDOW 3/6 : 2021  —  Sideways / consolidation
+  TEST   : 2021-01-01  →  2022-01-01
+  TRAIN  : 2017-01-01  →  2021-01-01
+  Optuna : skipped (reusing params from window 1)
+########################################################################
+
+  Training bars : 1006
+  Test bars     : 252
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=19.4% SIDE=56.1% UP=24.6%)
+  [    0s]  Using pre-tuned hyperparameters — Optuna skipped.
+  [    0s]  Training individual regression models…
+  [    7s]  Training individual classification models (class-balanced)…
+  [   20s]  Building regression stacking ensemble (OOF)…
+  [   20s]    Stacking regression fold 1/5 – XGBoost
+  [   21s]    Stacking regression fold 1/5 – LightGBM
+  [   21s]    Stacking regression fold 1/5 – CatBoost
+  [   23s]    Stacking regression fold 2/5 – XGBoost
+  [   24s]    Stacking regression fold 2/5 – LightGBM
+  [   24s]    Stacking regression fold 2/5 – CatBoost
+  [   27s]    Stacking regression fold 3/5 – XGBoost
+  [   28s]    Stacking regression fold 3/5 – LightGBM
+  [   29s]    Stacking regression fold 3/5 – CatBoost
+  [   32s]    Stacking regression fold 4/5 – XGBoost
+  [   33s]    Stacking regression fold 4/5 – LightGBM
+  [   34s]    Stacking regression fold 4/5 – CatBoost
+  [   37s]    Stacking regression fold 5/5 – XGBoost
+  [   38s]    Stacking regression fold 5/5 – LightGBM
+  [   40s]    Stacking regression fold 5/5 – CatBoost
+  [   43s]    Retraining L1 XGBoost on full training set
+  [   44s]    Retraining L1 LightGBM on full training set
+  [   47s]    Retraining L1 CatBoost on full training set
+  [   50s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [   50s]    Stacking classification fold 1/5 – XGBoost
+  [   51s]    Stacking classification fold 1/5 – LightGBM
+  [   52s]    Stacking classification fold 1/5 – CatBoost
+  [   56s]    Stacking classification fold 2/5 – XGBoost
+  [   60s]    Stacking classification fold 2/5 – LightGBM
+  [   62s]    Stacking classification fold 2/5 – CatBoost
+  [   68s]    Stacking classification fold 3/5 – XGBoost
+  [   74s]    Stacking classification fold 3/5 – LightGBM
+  [   78s]    Stacking classification fold 3/5 – CatBoost
+  [   85s]    Stacking classification fold 4/5 – XGBoost
+  [   92s]    Stacking classification fold 4/5 – LightGBM
+  [   98s]    Stacking classification fold 4/5 – CatBoost
+  [  105s]    Stacking classification fold 5/5 – XGBoost
+  [  114s]    Stacking classification fold 5/5 – LightGBM
+  [  122s]    Stacking classification fold 5/5 – CatBoost
+  [  129s]    Calibrating L1 XGBoost on full training set
+  [  139s]    Calibrating L1 LightGBM on full training set
+  [  148s]    Calibrating L1 CatBoost on full training set
+  [  156s]  Optimising confidence thresholds on OOF data…
+  [  156s]  Optimal thresholds: UP>0.420 DOWN>0.350 (profit-proxy score=0.5478)
+  [  156s]  Training complete.
+
+  Training complete in 2.6 min
+
+  Classification:
+    Overall accuracy : 50.0%
+    Dir accuracy     : 25.6%  (on 39 signals)
+    DOWN recall      : 3.8%
+    t_up=0.420  t_down=0.350  OOF=0.5478
+
+  Backtest results:
+    Total Return (%)        : 4.98
+    CAGR (%)                : 4.98
+    Sharpe Ratio            : 2.125
+    Sortino Ratio           : 12.333
+    Calmar Ratio            : 10.343
+    Max Drawdown (%)        : -0.48
+    Win Rate (%)            : 85.71
+    Profit Factor           : 15.904
+    Expectancy ($)          : 756.71
+    Total Trades            : 7
+    Buy trades              : 4
+    Sell trades             : 3
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2021                   +5.0%    2.125   12.333   -0.5%    85.7%  15.904       7
+  RSI Strategy              +1.0%    0.369    0.627   -1.8%    50.0%   1.480       8
+  MA Crossover              -2.2%   -1.109   -1.405   -2.9%    28.6%   0.491       7
+  Breakout                  -2.7%   -1.033   -1.207   -3.2%    27.3%   0.555      11
+  Buy & Hold                -0.7%   -0.262   -0.419   -2.5%    37.5%   0.939       8
+
+
+########################################################################
+  WINDOW 4/6 : 2022 (Rate hikes)  —  Bear / rate shock
+  TEST   : 2022-01-01  →  2023-01-01
+  TRAIN  : 2018-01-01  →  2022-01-01
+  Optuna : skipped (reusing params from window 1)
+########################################################################
+
+  Training bars : 1007
+  Test bars     : 251
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=20.2% SIDE=55.3% UP=24.5%)
+  [    0s]  Using pre-tuned hyperparameters — Optuna skipped.
+  [    0s]  Training individual regression models…
+  [    6s]  Training individual classification models (class-balanced)…
+  [   20s]  Building regression stacking ensemble (OOF)…
+  [   20s]    Stacking regression fold 1/5 – XGBoost
+  [   21s]    Stacking regression fold 1/5 – LightGBM
+  [   21s]    Stacking regression fold 1/5 – CatBoost
+  [   23s]    Stacking regression fold 2/5 – XGBoost
+  [   24s]    Stacking regression fold 2/5 – LightGBM
+  [   24s]    Stacking regression fold 2/5 – CatBoost
+  [   27s]    Stacking regression fold 3/5 – XGBoost
+  [   28s]    Stacking regression fold 3/5 – LightGBM
+  [   29s]    Stacking regression fold 3/5 – CatBoost
+  [   32s]    Stacking regression fold 4/5 – XGBoost
+  [   33s]    Stacking regression fold 4/5 – LightGBM
+  [   34s]    Stacking regression fold 4/5 – CatBoost
+  [   37s]    Stacking regression fold 5/5 – XGBoost
+  [   38s]    Stacking regression fold 5/5 – LightGBM
+  [   40s]    Stacking regression fold 5/5 – CatBoost
+  [   43s]    Retraining L1 XGBoost on full training set
+  [   44s]    Retraining L1 LightGBM on full training set
+  [   46s]    Retraining L1 CatBoost on full training set
+  [   50s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [   50s]    Stacking classification fold 1/5 – XGBoost
+  [   51s]    Stacking classification fold 1/5 – LightGBM
+  [   52s]    Stacking classification fold 1/5 – CatBoost
+  [   57s]    Stacking classification fold 2/5 – XGBoost
+  [   60s]    Stacking classification fold 2/5 – LightGBM
+  [   63s]    Stacking classification fold 2/5 – CatBoost
+  [   69s]    Stacking classification fold 3/5 – XGBoost
+  [   74s]    Stacking classification fold 3/5 – LightGBM
+  [   78s]    Stacking classification fold 3/5 – CatBoost
+  [   85s]    Stacking classification fold 4/5 – XGBoost
+  [   92s]    Stacking classification fold 4/5 – LightGBM
+  [   98s]    Stacking classification fold 4/5 – CatBoost
+  [  105s]    Stacking classification fold 5/5 – XGBoost
+  [  113s]    Stacking classification fold 5/5 – LightGBM
+  [  120s]    Stacking classification fold 5/5 – CatBoost
+  [  127s]    Calibrating L1 XGBoost on full training set
+  [  136s]    Calibrating L1 LightGBM on full training set
+  [  146s]    Calibrating L1 CatBoost on full training set
+  [  153s]  Optimising confidence thresholds on OOF data…
+  [  153s]  Optimal thresholds: UP>0.390 DOWN>0.350 (profit-proxy score=0.5466)
+  [  153s]  Training complete.
+
+  Training complete in 2.6 min
+
+  Classification:
+    Overall accuracy : 47.4%
+    Dir accuracy     : 50.0%  (on 6 signals)
+    DOWN recall      : 1.5%
+    t_up=0.390  t_down=0.350  OOF=0.5466
+
+  Backtest results:
+    Total Return (%)        : -0.61
+    CAGR (%)                : -0.61
+    Sharpe Ratio            : -0.69
+    Sortino Ratio           : -0.349
+    Calmar Ratio            : -0.528
+    Max Drawdown (%)        : -1.16
+    Win Rate (%)            : 25.0
+    Profit Factor           : 0.5
+    Expectancy ($)          : -142.3
+    Total Trades            : 4
+    Buy trades              : 3
+    Sell trades             : 1
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2022 (Rate hikes)      -0.6%   -0.690   -0.349   -1.2%    25.0%   0.500       4
+  RSI Strategy              -2.6%   -0.819   -0.979   -2.6%    25.0%   0.636      12
+  MA Crossover              -2.2%   -0.562   -0.855   -3.2%    35.3%   0.797      17
+  Breakout                  +1.8%    0.564    0.916   -1.9%    50.0%   1.531      12
+  Buy & Hold                -0.5%   -0.101   -0.164   -5.3%    37.5%   1.010      16
+
+
+########################################################################
+  WINDOW 5/6 : 2023  —  Recovery / range
+  TEST   : 2023-01-01  →  2024-01-01
+  TRAIN  : 2019-01-01  →  2023-01-01
+  Optuna : skipped (reusing params from window 1)
+########################################################################
+
+  Training bars : 1008
+  Test bars     : 250
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=22.5% SIDE=50.1% UP=27.4%)
+  [    0s]  Using pre-tuned hyperparameters — Optuna skipped.
+  [    0s]  Training individual regression models…
+  [    6s]  Training individual classification models (class-balanced)…
+  [   20s]  Building regression stacking ensemble (OOF)…
+  [   20s]    Stacking regression fold 1/5 – XGBoost
+  [   20s]    Stacking regression fold 1/5 – LightGBM
+  [   20s]    Stacking regression fold 1/5 – CatBoost
+  [   22s]    Stacking regression fold 2/5 – XGBoost
+  [   23s]    Stacking regression fold 2/5 – LightGBM
+  [   23s]    Stacking regression fold 2/5 – CatBoost
+  [   26s]    Stacking regression fold 3/5 – XGBoost
+  [   27s]    Stacking regression fold 3/5 – LightGBM
+  [   28s]    Stacking regression fold 3/5 – CatBoost
+  [   31s]    Stacking regression fold 4/5 – XGBoost
+  [   32s]    Stacking regression fold 4/5 – LightGBM
+  [   33s]    Stacking regression fold 4/5 – CatBoost
+  [   36s]    Stacking regression fold 5/5 – XGBoost
+  [   37s]    Stacking regression fold 5/5 – LightGBM
+  [   39s]    Stacking regression fold 5/5 – CatBoost
+  [   42s]    Retraining L1 XGBoost on full training set
+  [   43s]    Retraining L1 LightGBM on full training set
+  [   45s]    Retraining L1 CatBoost on full training set
+  [   49s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [   49s]    Stacking classification fold 1/5 – XGBoost
+  [   50s]    Stacking classification fold 1/5 – LightGBM
+  [   51s]    Stacking classification fold 1/5 – CatBoost
+  [   55s]    Stacking classification fold 2/5 – XGBoost
+  [   59s]    Stacking classification fold 2/5 – LightGBM
+  [   61s]    Stacking classification fold 2/5 – CatBoost
+  [   67s]    Stacking classification fold 3/5 – XGBoost
+  [   72s]    Stacking classification fold 3/5 – LightGBM
+  [   75s]    Stacking classification fold 3/5 – CatBoost
+  [   81s]    Stacking classification fold 4/5 – XGBoost
+  [   89s]    Stacking classification fold 4/5 – LightGBM
+  [   93s]    Stacking classification fold 4/5 – CatBoost
+  [  101s]    Stacking classification fold 5/5 – XGBoost
+  [  108s]    Stacking classification fold 5/5 – LightGBM
+  [  115s]    Stacking classification fold 5/5 – CatBoost
+  [  122s]    Calibrating L1 XGBoost on full training set
+  [  131s]    Calibrating L1 LightGBM on full training set
+  [  139s]    Calibrating L1 CatBoost on full training set
+  [  147s]  Optimising confidence thresholds on OOF data…
+  [  147s]  Optimal thresholds: UP>0.470 DOWN>0.360 (profit-proxy score=0.5760)
+  [  147s]  Training complete.
+
+  Training complete in 2.5 min
+
+  Classification:
+    Overall accuracy : 55.2%
+    Dir accuracy     : 27.8%  (on 18 signals)
+    DOWN recall      : 8.0%
+    t_up=0.470  t_down=0.360  OOF=0.5760
+
+  Backtest results:
+    Total Return (%)        : -0.96
+    CAGR (%)                : -0.97
+    Sharpe Ratio            : -0.566
+    Sortino Ratio           : -0.641
+    Calmar Ratio            : -0.445
+    Max Drawdown (%)        : -2.18
+    Win Rate (%)            : 22.22
+    Profit Factor           : 0.713
+    Expectancy ($)          : -84.71
+    Total Trades            : 9
+    Buy trades              : 4
+    Sell trades             : 5
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2023                   -1.0%   -0.566   -0.641   -2.2%    22.2%   0.713       9
+  RSI Strategy              -0.2%   -0.060   -0.093   -2.1%    40.0%   1.037      15
+  MA Crossover              -3.6%   -1.036   -1.445   -5.9%    30.0%   0.656      20
+  Breakout                  -1.3%   -0.497   -0.683   -2.3%    30.0%   0.795      10
+  Buy & Hold                +1.8%    0.574    1.085   -2.9%    46.1%   1.537      13
+
+
+########################################################################
+  WINDOW 6/6 : 2024 (Bull run)  —  Strong bull run (+27%)
+  TEST   : 2024-01-01  →  2025-01-01
+  TRAIN  : 2020-01-01  →  2024-01-01
+  Optuna : skipped (reusing params from window 1)
+########################################################################
+
+  Training bars : 1006
+  Test bars     : 252
+  [    0s]  Using classification target: Target_Direction (class dist: DOWN=23.5% SIDE=48.9% UP=27.6%)
+  [    0s]  Using pre-tuned hyperparameters — Optuna skipped.
+  [    0s]  Training individual regression models…
+  [    7s]  Training individual classification models (class-balanced)…
+  [   20s]  Building regression stacking ensemble (OOF)…
+  [   20s]    Stacking regression fold 1/5 – XGBoost
+  [   21s]    Stacking regression fold 1/5 – LightGBM
+  [   21s]    Stacking regression fold 1/5 – CatBoost
+  [   23s]    Stacking regression fold 2/5 – XGBoost
+  [   23s]    Stacking regression fold 2/5 – LightGBM
+  [   24s]    Stacking regression fold 2/5 – CatBoost
+  [   27s]    Stacking regression fold 3/5 – XGBoost
+  [   28s]    Stacking regression fold 3/5 – LightGBM
+  [   28s]    Stacking regression fold 3/5 – CatBoost
+  [   32s]    Stacking regression fold 4/5 – XGBoost
+  [   32s]    Stacking regression fold 4/5 – LightGBM
+  [   34s]    Stacking regression fold 4/5 – CatBoost
+  [   37s]    Stacking regression fold 5/5 – XGBoost
+  [   38s]    Stacking regression fold 5/5 – LightGBM
+  [   40s]    Stacking regression fold 5/5 – CatBoost
+  [   43s]    Retraining L1 XGBoost on full training set
+  [   44s]    Retraining L1 LightGBM on full training set
+  [   46s]    Retraining L1 CatBoost on full training set
+  [   49s]  Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  [   49s]    Stacking classification fold 1/5 – XGBoost
+  [   50s]    Stacking classification fold 1/5 – LightGBM
+  [   50s]    Stacking classification fold 1/5 – CatBoost
+  [   53s]    Stacking classification fold 2/5 – XGBoost
+  [   56s]    Stacking classification fold 2/5 – LightGBM
+  [   57s]    Stacking classification fold 2/5 – CatBoost
+  [   62s]    Stacking classification fold 3/5 – XGBoost
+  [   67s]    Stacking classification fold 3/5 – LightGBM
+  [   69s]    Stacking classification fold 3/5 – CatBoost
+  [   76s]    Stacking classification fold 4/5 – XGBoost
+  [   82s]    Stacking classification fold 4/5 – LightGBM
+  [   86s]    Stacking classification fold 4/5 – CatBoost
+  [   93s]    Stacking classification fold 5/5 – XGBoost
+  [  101s]    Stacking classification fold 5/5 – LightGBM
+  [  107s]    Stacking classification fold 5/5 – CatBoost
+  [  114s]    Calibrating L1 XGBoost on full training set
+  [  123s]    Calibrating L1 LightGBM on full training set
+  [  131s]    Calibrating L1 CatBoost on full training set
+  [  138s]  Optimising confidence thresholds on OOF data…
+  [  139s]  Optimal thresholds: UP>0.380 DOWN>0.350 (profit-proxy score=0.5796)
+  [  139s]  Training complete.
+
+  Training complete in 2.3 min
+
+  Classification:
+    Overall accuracy : 42.5%
+    Dir accuracy     : 36.4%  (on 55 signals)
+    DOWN recall      : 11.1%
+    t_up=0.380  t_down=0.350  OOF=0.5796
+
+  Backtest results:
+    Total Return (%)        : 2.2
+    CAGR (%)                : 2.2
+    Sharpe Ratio            : 0.798
+    Sortino Ratio           : 1.411
+    Calmar Ratio            : 1.311
+    Max Drawdown (%)        : -1.67
+    Win Rate (%)            : 45.45
+    Profit Factor           : 1.849
+    Expectancy ($)          : 231.78
+    Total Trades            : 11
+    Buy trades              : 10
+    Sell trades             : 1
+
+  Benchmark comparison:
+  Strategy                 Return   Sharpe  Sortino   MaxDD  WinRate      PF  Trades
+  --------------------------------------------------------------------------------
+  AI 2024 (Bull run)        +2.2%    0.798    1.411   -1.7%    45.5%   1.849      11
+  RSI Strategy              -2.6%   -0.809   -0.853   -4.7%    26.7%   0.659      15
+  MA Crossover              +1.9%    0.528    1.052   -3.0%    43.8%   1.459      16
+  Breakout                  +0.9%    0.263    0.391   -2.6%    40.0%   1.214      15
+  Buy & Hold                +5.2%    1.335    3.058   -1.3%    56.2%   2.317      16
+
+
+########################################################################
+  ROLLING WALK-FORWARD VALIDATION SUMMARY
+  Total elapsed: 31.3 min   (tune-once, 100 trials)
+########################################################################
+
+  Window                 Regime                      B&H  AI Ret  Sharpe    Sort   MaxDD     WR      PF  Trd  DirAcc
+  ------------------------------------------------------------------------------------------------------------
+  2019                   Gold bull run (+18%)     + 18.6% +   0.2%   0.245   0.252   -0.5%  50.0%   1.721    2  10.0%
+  2020 (COVID)           COVID crash + V-recovery + 24.2% +   0.5%   0.972 3732.319   -0.0% 100.0% 548840000000.000    1  75.0%
+  2021                   Sideways / consolidation  -6.0% +   5.0%   2.125  12.333   -0.5%  85.7%  15.904    7  25.6%
+  2022 (Rate hikes)      Bear / rate shock        +  1.1%   -0.6%  -0.690  -0.349   -1.2%  25.0%   0.500    4  50.0%
+  2023                   Recovery / range         + 12.1%   -1.0%  -0.566  -0.641   -2.2%  22.2%   0.713    9  27.8%
+  2024 (Bull run)        Strong bull run (+27%)   + 27.4% +   2.2%   0.798   1.411   -1.7%  45.5%   1.849   11  36.4%
+
+  ------------------------------------------------------------------------------------------------------------
+
+  Aggregates across 6 windows:
+    Profitable windows    : 4 / 6
+    Avg AI return         : +1.06%  (range -1.0% to +5.0%)
+    Avg B&H return        : +12.89%
+    Avg Sharpe            : 0.481  (range -0.690 to 2.125)
+    Positive-Sharpe wins  : 4 / 6
+    Avg Max Drawdown      : -1.01%
+    Avg Win Rate          : 54.7%
+    Avg Profit Factor     : 91473333336.781
+    Avg Trades / window   : 5.7
+
+########################################################################
+  VALIDATION COMPLETE
+########################################################################
+
