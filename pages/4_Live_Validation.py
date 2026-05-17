@@ -84,6 +84,14 @@ def _load_log() -> pd.DataFrame:
     return log[COLUMNS]
 
 
+def _runtime_prediction_date(now_utc: datetime | None = None) -> str:
+    override = os.getenv("LIVE_VALIDATION_DATE", "").strip()
+    if override:
+        return pd.to_datetime(override).strftime("%Y-%m-%d")
+    now = now_utc or datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%d")
+
+
 def _save_log(log: pd.DataFrame) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     log = log.copy()
@@ -140,6 +148,7 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
 
 
 def _append_today_snapshot(log: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    now_utc = datetime.now(timezone.utc)
     reg, clf, feat, stack_reg, stack_clf = load_models()
     if reg is None:
         return log, "Saved model artifact not found. No snapshot captured."
@@ -157,14 +166,14 @@ def _append_today_snapshot(log: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.Data
     if not signal:
         return log, "Signal could not be generated. No snapshot captured."
 
-    prediction_date = pd.to_datetime(df.index[-1]).strftime("%Y-%m-%d")
+    prediction_date = _runtime_prediction_date(now_utc)
     if not log.empty and prediction_date in set(log["prediction_date"].astype(str)):
         return log, f"Snapshot already exists for {prediction_date}."
 
     proba = signal.get("proba_vec") or [np.nan, np.nan, np.nan]
     row = {
         "prediction_date": prediction_date,
-        "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "gold_price": float(signal["current_price"]),
         "signal": signal["signal_label"],
         "confidence": signal.get("confidence_pct"),
