@@ -154,7 +154,7 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
 
 
 def _check_market_bar_stale(log: pd.DataFrame, market_bar_date: str) -> bool:
-    """Return True if the last snapshot was built from the same market bar."""
+    """Return True if the latest market bar is not newer than the last snapshot bar."""
     if log.empty:
         return False
     mbd_col = log.get("market_bar_date") if hasattr(log, "get") else (
@@ -162,8 +162,14 @@ def _check_market_bar_stale(log: pd.DataFrame, market_bar_date: str) -> bool:
     )
     if mbd_col is None:
         return False
-    last_mbd = str(log.sort_values("prediction_date").iloc[-1].get("market_bar_date", ""))
-    return last_mbd == market_bar_date
+    last_mbd = pd.to_datetime(
+        log.sort_values("prediction_date").iloc[-1].get("market_bar_date", ""),
+        errors="coerce",
+    )
+    current_mbd = pd.to_datetime(market_bar_date, errors="coerce")
+    if pd.isna(last_mbd) or pd.isna(current_mbd):
+        return False
+    return current_mbd <= last_mbd
 
 
 def _append_today_snapshot(
@@ -263,7 +269,7 @@ else:
 
     if is_stale and not st.session_state.lv_force_capture:
         st.warning(
-            f"Latest market data has not updated yet; snapshot uses same market bar ({market_bar_date})."
+            f"Latest market data has not advanced; snapshot would use market bar {market_bar_date}."
         )
         if st.button("Capture anyway"):
             st.session_state.lv_force_capture = True
