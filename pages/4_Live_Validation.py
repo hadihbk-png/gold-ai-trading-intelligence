@@ -37,8 +37,10 @@ LOG_PATH = os.path.join(DATA_DIR, "live_validation_log.csv")
 
 _PLT = dict(plot_bgcolor=DARK_BG, paper_bgcolor=DARK_BG, font=dict(color="white"))
 
+# market_bar_date stores the index date of the latest gold bar used for prediction
 COLUMNS = [
     "prediction_date",
+    "market_bar_date",
     "timestamp_utc",
     "gold_price",
     "signal",
@@ -96,6 +98,10 @@ def _save_log(log: pd.DataFrame) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     log = log.copy()
     log["prediction_date"] = pd.to_datetime(log["prediction_date"]).dt.strftime("%Y-%m-%d")
+    if "market_bar_date" in log.columns:
+        log["market_bar_date"] = pd.to_datetime(
+            log["market_bar_date"], errors="coerce"
+        ).dt.strftime("%Y-%m-%d")
     log = log.sort_values("prediction_date").drop_duplicates("prediction_date", keep="last")
     log.to_csv(LOG_PATH, index=False)
 
@@ -147,7 +153,24 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
     return scored
 
 
-def _append_today_snapshot(log: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+def _check_market_bar_stale(log: pd.DataFrame, market_bar_date: str) -> bool:
+    """Return True if the last snapshot was built from the same market bar."""
+    if log.empty:
+        return False
+    mbd_col = log.get("market_bar_date") if hasattr(log, "get") else (
+        log["market_bar_date"] if "market_bar_date" in log.columns else None
+    )
+    if mbd_col is None:
+        return False
+    last_mbd = str(log.sort_values("prediction_date").iloc[-1].get("market_bar_date", ""))
+    return last_mbd == market_bar_date
+
+
+def _append_today_snapshot(
+    log: pd.DataFrame,
+    df: pd.DataFrame,
+    market_bar_date: str,
+) -> tuple[pd.DataFrame, str]:
     now_utc = datetime.now(timezone.utc)
     reg, clf, feat, stack_reg, stack_clf = load_models()
     if reg is None:
@@ -173,6 +196,7 @@ def _append_today_snapshot(log: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.Data
     proba = signal.get("proba_vec") or [np.nan, np.nan, np.nan]
     row = {
         "prediction_date": prediction_date,
+        "market_bar_date": market_bar_date,
         "timestamp_utc": now_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "gold_price": float(signal["current_price"]),
         "signal": signal["signal_label"],
@@ -188,7 +212,7 @@ def _append_today_snapshot(log: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.Data
         "actual_move_pct": np.nan,
         "correct": np.nan,
     }
-    return pd.concat([log, pd.DataFrame([row])], ignore_index=True), f"Captured snapshot for {prediction_date}."
+    return pd.concat([log, pd.DataFrame([row])], ignore_index=True), f"Captured snapshot for {prediction_date} (market bar: {market_bar_date})."
 
 
 def _accuracy(series: pd.Series) -> str:
@@ -198,24 +222,60 @@ def _accuracy(series: pd.Series) -> str:
     return f"{valid.astype(bool).mean() * 100:.1f}%"
 
 
+# ── Session state init ─────────────────────────────────────────────────────────
+for _k, _v in [("lv_df", None), ("lv_force_capture", False)]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
 st.title("Live Forward Validation")
 st.caption("Daily out-of-sample prediction log. No retraining. No model logic changes.")
 
-try:
-    raw_df = download_data()
-    df = add_macro_features(add_features(raw_df), None)
-except Exception as exc:
-    st.error(f"Failed to load market data: {exc}")
-    st.stop()
+# ── Force-refresh market data once per session ─────────────────────────────────
+# Always fetches fresh bars from yfinance on the first page load so that
+# snapshot values reflect the latest available market data, not a stale cache.
+if st.session_state.lv_df is None:
+    with st.spinner("Downloading latest market data…"):
+        try:
+            _raw = download_data(force_refresh=True)
+            st.session_state.lv_df = add_macro_features(add_features(_raw), None)
+        except Exception as exc:
+            st.error(f"Failed to load market data: {exc}")
+            st.stop()
 
+df = st.session_state.lv_df
+market_bar_date = pd.Timestamp(df.index[-1]).strftime("%Y-%m-%d")
+prediction_date = _runtime_prediction_date()
+
+# ── Load and score existing log ────────────────────────────────────────────────
 log_df = _load_log()
 log_df = _score_open_predictions(log_df, df)
-log_df, capture_msg = _append_today_snapshot(log_df, df)
-log_df = _score_open_predictions(log_df, df)
-_save_log(log_df)
 
-st.info(capture_msg)
-st.caption(f"Validation threshold: +/-{DIRECTION_THRESHOLD * 100:.2f}% next-session move")
+today_exists = (
+    not log_df.empty
+    and prediction_date in set(log_df["prediction_date"].astype(str))
+)
+
+# ── Snapshot capture logic ─────────────────────────────────────────────────────
+if today_exists:
+    st.info(f"Snapshot already exists for {prediction_date}.")
+else:
+    is_stale = _check_market_bar_stale(log_df, market_bar_date)
+
+    if is_stale and not st.session_state.lv_force_capture:
+        st.warning(
+            f"Latest market data has not updated yet; snapshot uses same market bar ({market_bar_date})."
+        )
+        if st.button("Capture anyway"):
+            st.session_state.lv_force_capture = True
+            st.rerun()
+    else:
+        st.session_state.lv_force_capture = False
+        log_df, capture_msg = _append_today_snapshot(log_df, df, market_bar_date)
+        log_df = _score_open_predictions(log_df, df)
+        _save_log(log_df)
+        st.info(capture_msg)
+
+st.caption(f"Market bar date: {market_bar_date} | Validation threshold: +/-{DIRECTION_THRESHOLD * 100:.2f}%")
 
 scored = log_df[log_df["correct"].notna()].copy()
 if not scored.empty:
