@@ -65,6 +65,10 @@ def _dark(fig, height=360):
     return fig
 
 
+_STR_COLS = {"prediction_date", "market_bar_date", "timestamp_utc", "actual_date", "signal", "regime", "correct"}
+_NUM_COLS = {"gold_price", "confidence", "prob_down", "prob_sideways", "prob_up", "actual_price", "actual_move_pct"}
+
+
 def _load_log() -> pd.DataFrame:
     if not os.path.exists(LOG_PATH):
         return pd.DataFrame(columns=COLUMNS)
@@ -72,6 +76,14 @@ def _load_log() -> pd.DataFrame:
     for col in COLUMNS:
         if col not in log.columns:
             log[col] = np.nan
+    # Force string/date columns to object so NaN-only columns don't infer as float64
+    for col in _STR_COLS:
+        if col in log.columns:
+            log[col] = log[col].astype(object)
+    # Force numeric columns
+    for col in _NUM_COLS:
+        if col in log.columns:
+            log[col] = pd.to_numeric(log[col], errors="coerce")
     if "correct" in log.columns:
         log["correct"] = log["correct"].map({
             True: True,
@@ -128,6 +140,12 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
         return log
 
     scored = log.copy()
+    # Ensure actual_date is object dtype so string assignment never hits a float64 column
+    if "actual_date" not in scored.columns:
+        scored["actual_date"] = pd.Series(dtype=object)
+    elif scored["actual_date"].dtype != object:
+        scored["actual_date"] = scored["actual_date"].astype(object)
+
     prices = df[["Close"]].copy()
     prices.index = pd.to_datetime(prices.index).normalize()
 
