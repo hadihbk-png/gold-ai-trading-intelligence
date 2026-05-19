@@ -20,21 +20,28 @@ Derived features added:
 
 import os
 import pickle
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 
-from src.config import DATA_DIR, FRED_API_KEY, FRED_SERIES, START_DATE, END_DATE
+from src.config import DATA_DIR, FRED_API_KEY, FRED_SERIES
 
 
-def download_fred(start: str = START_DATE,
-                  end: str = END_DATE,
+def download_fred(start: str = None,
+                  end: str = None,
                   force_refresh: bool = False) -> pd.DataFrame:
     """
     Download FRED series and cache to disk.
     Returns a daily (business-day) DataFrame.
     Returns empty DataFrame if FRED_API_KEY is unset.
+
+    start/end default to None so dates are computed at call time, not import time.
     """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+    if start is None:
+        start = (datetime.today() - timedelta(days=365 * 5 + 90)).strftime("%Y-%m-%d")
+
     cache_path = os.path.join(DATA_DIR, "macro_data.pkl")
     os.makedirs(DATA_DIR, exist_ok=True)
 

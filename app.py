@@ -54,12 +54,12 @@ for k in _KEYS:
         st.session_state[k] = None if k != "refresh_key" else 0
 
 # ── Cached data loader ─────────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Downloading market data…")
+@st.cache_data(ttl=3600, show_spinner="Downloading market data…")
 def _load_price(refresh_key: int) -> pd.DataFrame:
     raw = download_data(force_refresh=(refresh_key > 0))
     return add_features(raw)
 
-@st.cache_data(show_spinner="Downloading FRED macro data…")
+@st.cache_data(ttl=3600, show_spinner="Downloading FRED macro data…")
 def _load_macro(refresh_key: int, fred_key: str) -> pd.DataFrame:
     if not fred_key:
         return pd.DataFrame()

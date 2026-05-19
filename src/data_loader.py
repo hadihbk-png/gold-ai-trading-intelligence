@@ -5,15 +5,25 @@ Data is disk-cached to avoid re-downloading on every Streamlit rerun.
 
 import os
 import pickle
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import yfinance as yf
 
 from src.config import (
     DATA_DIR, PRIMARY_TICKER, TICKERS,
-    START_DATE, END_DATE, TEST_YEARS,
+    TEST_YEARS,
 )
+
+_CACHE_STALE_DAYS = 3  # treat disk cache as stale if last bar is older than this many calendar days
+
+
+def _is_cache_stale(df: pd.DataFrame) -> bool:
+    """Return True if df's last bar is more than _CACHE_STALE_DAYS calendar days old."""
+    if df is None or df.empty:
+        return True
+    last_bar = pd.Timestamp(df.index[-1]).normalize().date()
+    return (datetime.today().date() - last_bar).days > _CACHE_STALE_DAYS
 
 
 def _flatten(df: pd.DataFrame) -> pd.DataFrame:
@@ -24,15 +34,23 @@ def _flatten(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def download_data(
-    start: str = START_DATE,
-    end: str   = END_DATE,
+    start: str = None,
+    end: str   = None,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
     Download price data for all tickers.
     Returns a DataFrame with OHLCV columns for the primary ticker (GC=F)
     and Close columns for each additional ticker, aligned to business-day dates.
+
+    start/end default to None so the date range is computed at call time (not
+    at import time), preventing stale date ranges in long-running servers.
     """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+    if start is None:
+        start = (datetime.today() - timedelta(days=365 * 5 + 90)).strftime("%Y-%m-%d")
+
     os.makedirs(DATA_DIR, exist_ok=True)
     cache_path = os.path.join(DATA_DIR, "raw_data.pkl")
 
@@ -44,7 +62,7 @@ def download_data(
 
     if not force_refresh:
         cached = _load_cached()
-        if cached is not None:
+        if cached is not None and not _is_cache_stale(cached):
             return cached
 
     raw: dict[str, pd.DataFrame] = {}
