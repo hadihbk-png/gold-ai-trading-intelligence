@@ -309,9 +309,13 @@ else:
                 return (f"color: {'#00CC88' if float(v) > 0 else '#FF4B4B' if float(v) < 0 else ''}")
             except Exception:
                 return ""
-        st.dataframe(
-            trades_df.style.applymap(_color_pnl, subset=["PnL $"]),
-            width="stretch",
-        )
+        _pnl_styler = trades_df.style
+        if hasattr(_pnl_styler, "map"):
+            _pnl_styled = _pnl_styler.map(_color_pnl, subset=["PnL $"])
+        elif hasattr(_pnl_styler, "applymap"):
+            _pnl_styled = _pnl_styler.applymap(_color_pnl, subset=["PnL $"])
+        else:
+            _pnl_styled = trades_df
+        st.dataframe(_pnl_styled, width="stretch")
     else:
         st.write("No trades executed in the test period.")
