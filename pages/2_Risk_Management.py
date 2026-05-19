@@ -25,7 +25,7 @@ st.set_page_config(
 
 DARK_BG  = "#0e1117"
 
-@st.cache_data(show_spinner="Loading market data…")
+@st.cache_data(ttl=3600, show_spinner="Loading market data…")
 def _load(refresh_key: int) -> pd.DataFrame:
     raw = download_data(force_refresh=(refresh_key > 0))
     return add_features(raw)
