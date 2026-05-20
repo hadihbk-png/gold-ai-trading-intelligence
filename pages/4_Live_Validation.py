@@ -190,6 +190,50 @@ def _check_market_bar_stale(log: pd.DataFrame, market_bar_date: str) -> bool:
     return current_mbd <= last_mbd
 
 
+def _backfill_missing_dates(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame:
+    """Insert audit rows for market days absent from the log.
+    Prices come from real market data; prediction fields are left NaN —
+    nothing is fabricated."""
+    if df is None or df.empty or log.empty:
+        return log
+
+    prices = df[["Close"]].copy()
+    prices.index = pd.DatetimeIndex(prices.index).normalize()
+    market_dates = prices.index.unique()
+
+    existing = set(pd.to_datetime(log["prediction_date"], errors="coerce").dt.normalize())
+    log_min = pd.to_datetime(log["prediction_date"], errors="coerce").min().normalize()
+    today = pd.Timestamp(datetime.now(timezone.utc).date())
+
+    gap_dates = [d for d in market_dates if log_min < d < today and d not in existing]
+    if not gap_dates:
+        return log
+
+    new_rows = []
+    for gap_date in sorted(gap_dates):
+        close_price = float(prices.loc[gap_date, "Close"])
+        new_rows.append({
+            "prediction_date": gap_date.strftime("%Y-%m-%d"),
+            "market_bar_date": gap_date.strftime("%Y-%m-%d"),
+            "timestamp_utc": "BACKFILLED",
+            "gold_price": close_price,
+            "signal": np.nan,
+            "confidence": np.nan,
+            "prob_down": np.nan,
+            "prob_sideways": np.nan,
+            "prob_up": np.nan,
+            "regime": np.nan,
+            "atr": np.nan,
+            "vix": np.nan,
+            "actual_date": np.nan,
+            "actual_price": np.nan,
+            "actual_move_pct": np.nan,
+            "correct": np.nan,
+        })
+
+    return pd.concat([log, pd.DataFrame(new_rows)], ignore_index=True)
+
+
 def _append_today_snapshot(
     log: pd.DataFrame,
     df: pd.DataFrame,
@@ -270,9 +314,14 @@ df = st.session_state.lv_df
 market_bar_date = pd.Timestamp(df.index[-1]).strftime("%Y-%m-%d")
 prediction_date = _runtime_prediction_date()
 
-# ── Load and score existing log ────────────────────────────────────────────────
+# ── Load, backfill gaps, and score existing log ────────────────────────────────
 log_df = _load_log()
+_pre_backfill_len = len(log_df)
+log_df = _backfill_missing_dates(log_df, df)
+_backfilled = len(log_df) > _pre_backfill_len
 log_df = _score_open_predictions(log_df, df)
+if _backfilled:
+    _save_log(log_df)
 
 today_exists = (
     not log_df.empty
