@@ -152,6 +152,8 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
     for idx, row in scored.iterrows():
         if pd.notna(row.get("correct")):
             continue
+        if pd.isna(row.get("signal")):  # BACKFILLED rows have no signal — never score them
+            continue
 
         pred_date = pd.to_datetime(row["prediction_date"]).normalize()
         future = prices[prices.index > pred_date]
@@ -172,16 +174,15 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
 
 
 def _check_market_bar_stale(log: pd.DataFrame, market_bar_date: str) -> bool:
-    """Return True if the latest market bar is not newer than the last snapshot bar."""
+    """Return True if the latest market bar is not newer than the last real snapshot bar.
+    BACKFILLED rows are excluded so they cannot block new real predictions."""
     if log.empty:
         return False
-    mbd_col = log.get("market_bar_date") if hasattr(log, "get") else (
-        log["market_bar_date"] if "market_bar_date" in log.columns else None
-    )
-    if mbd_col is None:
+    real = log[log["timestamp_utc"].astype(str) != "BACKFILLED"]
+    if real.empty or "market_bar_date" not in real.columns:
         return False
     last_mbd = pd.to_datetime(
-        log.sort_values("prediction_date").iloc[-1].get("market_bar_date", ""),
+        real.sort_values("prediction_date").iloc[-1].get("market_bar_date", ""),
         errors="coerce",
     )
     current_mbd = pd.to_datetime(market_bar_date, errors="coerce")
