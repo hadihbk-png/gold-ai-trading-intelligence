@@ -387,7 +387,9 @@ display_df.insert(0, "Source", np.where(
     display_df["timestamp_utc"].astype(str) == "BACKFILLED", "BACKFILLED", "REAL"
 ))
 
-# Replace NaN with "—" for BACKFILLED rows so the table is readable
+# Replace NaN with "—" for BACKFILLED rows so the table is readable.
+# Cast each column to object first: pandas 3.x raises TypeError when assigning a
+# string ("—") into a float64 column, even in a display-only copy.
 _backfill_mask = display_df["Source"] == "BACKFILLED"
 _blank_cols = [
     "signal", "confidence", "prob_down", "prob_sideways", "prob_up",
@@ -395,6 +397,7 @@ _blank_cols = [
 ]
 for _col in _blank_cols:
     if _col in display_df.columns:
+        display_df[_col] = display_df[_col].astype(object)
         display_df.loc[_backfill_mask, _col] = display_df.loc[_backfill_mask, _col].fillna("—")
 
 st.dataframe(display_df, hide_index=True, use_container_width=True)

@@ -18,6 +18,7 @@ Dashboard, or Risk Management files were changed.
 | 7 | 2026-05-20 | pages/4_Live_Validation.py        | Missing caveat    | No UI note confirming BACKFILLED rows are excluded from accuracy | Added caption below KPI metrics |
 | 8 | 2026-05-20 | pages/4_Live_Validation.py        | Deprecated API    | `width="stretch"` deprecated | Replaced with `use_container_width=True` |
 | 9 | 2026-05-20 | pages/4_Live_Validation.py        | Runtime crash     | `TypeError: Invalid value '...' for dtype 'float64'` in `_score_open_predictions` on Streamlit Cloud (pandas 3.x) | Enforced object dtype for `actual_date` and `correct` before all `.at[]` assignments |
+| 10 | 2026-05-20 | pages/4_Live_Validation.py       | Runtime crash     | `TypeError: Invalid value '['—' '—']' for dtype 'float64'` in display table (pandas 3.x) | Cast each `_blank_cols` column to object in `display_df` before `fillna("—")` |
 
 ---
 
@@ -131,6 +132,35 @@ at the moment of `.at[]` assignment — which pandas 3.x now enforces strictly:
 - `log_df` and `live_validation_log.csv` schema are unchanged.
 - The display-only `"—"` replacement in `display_df` continues to be isolated from
   `log_df` (applied to a `.copy()` only).
+
+---
+
+## Fix 10 — pandas 3.x dtype crash in display table (`fillna("—")` into float64 column)
+
+**File:** `pages/4_Live_Validation.py`
+**Error:** `TypeError: Invalid value '['—' '—']' for dtype 'float64'` in the
+Validation Table display block.
+
+**Root cause:** `_blank_cols` includes numeric columns (`confidence`, `prob_down`,
+`prob_sideways`, `prob_up`, `atr`, `vix`, `actual_price`, `actual_move_pct`). The
+block on lines 381–383 had already converted those columns to `float64` via
+`pd.to_numeric()`. The subsequent `fillna("—")` then tried to write the string `"—"`
+into a `float64` column. Pandas 3.x now enforces dtype compatibility strictly and
+raises `TypeError` instead of silently coercing.
+
+**Fix:** Inside the `_blank_cols` replacement loop, cast each column to `object`
+dtype in `display_df` before calling `fillna("—")`:
+
+```python
+for _col in _blank_cols:
+    if _col in display_df.columns:
+        display_df[_col] = display_df[_col].astype(object)   # ← added
+        display_df.loc[_backfill_mask, _col] = display_df.loc[_backfill_mask, _col].fillna("—")
+```
+
+`astype(object)` on an already-object column is a no-op; on a float64 column it
+converts the dtype while preserving the rounded float values for REAL rows.
+`display_df` is a `.copy()` of `log_df`, so `log_df` and the CSV are unchanged.
 
 ---
 
