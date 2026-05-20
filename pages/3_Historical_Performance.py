@@ -37,6 +37,11 @@ def _fmt_pf(v: float) -> str:
         return ">999"
     return f"{v:.3f}"
 
+def _fmt_ratio(v: float, cap: float = 99.9) -> str:
+    if v > cap:
+        return f">{cap:.0f}"
+    return f"{v:.3f}"
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 
 st.title("📈 Historical Performance")
@@ -119,7 +124,7 @@ else:
         styled = styler.applymap(_color_return, subset=style_cols)
     else:
         styled = wfv_df
-    st.dataframe(styled, hide_index=True, width="stretch")
+    st.dataframe(styled, hide_index=True, use_container_width=True)
 
     # ── Return bar chart ──────────────────────────────────────────────────────
     st.subheader("Return by Window")
@@ -147,7 +152,7 @@ else:
                           legend=dict(orientation="h", y=1.05))
     fig_bar.update_xaxes(showgrid=False)
     fig_bar.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-    st.plotly_chart(fig_bar, width="stretch")
+    st.plotly_chart(fig_bar, use_container_width=True)
 
     # ── Sharpe + MaxDD side by side ───────────────────────────────────────────
     sc1, sc2 = st.columns(2)
@@ -164,7 +169,7 @@ else:
                              yaxis_title="Sharpe", showlegend=False)
         fig_sh.update_xaxes(showgrid=False)
         fig_sh.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-        st.plotly_chart(fig_sh, width="stretch")
+        st.plotly_chart(fig_sh, use_container_width=True)
 
     with sc2:
         fig_dd = go.Figure(go.Bar(
@@ -177,7 +182,7 @@ else:
                              yaxis_title="Max Drawdown (%)", showlegend=False)
         fig_dd.update_xaxes(showgrid=False)
         fig_dd.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-        st.plotly_chart(fig_dd, width="stretch")
+        st.plotly_chart(fig_dd, use_container_width=True)
 
     st.caption(
         f"Source: {os.path.basename(log_path)}  ·  "
@@ -190,7 +195,11 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 st.divider()
 st.header("Live Backtest — Current Training Period")
-st.caption("Single in-sample test period · Uses most recently trained model from Dashboard")
+st.caption(
+    "⚠️ In-sample only — model was trained on this data. "
+    "Figures are optimistic relative to true out-of-sample performance. "
+    "Uses most recently trained model from Dashboard."
+)
 
 bt = st.session_state.get("backtest_results")
 bm = st.session_state.get("benchmark_results")
@@ -217,8 +226,10 @@ else:
     k5.metric("Win Rate", f"{bt_m['Win Rate (%)']:.1f}%")
 
     k6, k7, k8, k9, k10 = st.columns(5)
-    k6.metric("Sortino",       f"{bt_m['Sortino Ratio']:.3f}")
-    k7.metric("Profit Factor", _fmt_pf(bt_m.get("Profit Factor", 0)))
+    k6.metric("Sortino",       _fmt_ratio(bt_m.get("Sortino Ratio", 0)),
+              help="High values occur when downside volatility is near zero; treat >10 as 'very strong', not literal.")
+    k7.metric("Profit Factor", _fmt_pf(bt_m.get("Profit Factor", 0)),
+              help="Capped at >999 for display. Extreme values arise from very few or no losing trades in this window.")
     k8.metric("Expectancy",    f"${bt_m.get('Expectancy ($)', 0):,.2f}")
     k9.metric("Total Trades",  bt_m["Total Trades"])
     k10.metric("Avg Hold",     f"{bt_m.get('Avg Hold (days)', 0):.1f} days")
@@ -238,7 +249,7 @@ else:
                          legend=dict(orientation="h", y=1.02))
     fig_eq.update_xaxes(showgrid=False)
     fig_eq.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-    st.plotly_chart(fig_eq, width="stretch")
+    st.plotly_chart(fig_eq, use_container_width=True)
 
     # ── Drawdown ──────────────────────────────────────────────────────────────
     dd = (eq - eq.cummax()) / eq.cummax() * 100
@@ -250,7 +261,7 @@ else:
     fig_dd2.update_layout(**_PLT, height=200, yaxis_title="Drawdown (%)")
     fig_dd2.update_xaxes(showgrid=False)
     fig_dd2.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-    st.plotly_chart(fig_dd2, width="stretch")
+    st.plotly_chart(fig_dd2, use_container_width=True)
 
     # ── Benchmark comparison ──────────────────────────────────────────────────
     if bm is not None:
@@ -273,7 +284,7 @@ else:
                     .highlight_max(subset=["Total Return (%)", "CAGR (%)", "Sharpe"],
                                    color="#1a3a2a")
                     .highlight_min(subset=["Max DD (%)"], color="#1a3a2a"),
-                width="stretch",
+                use_container_width=True,
             )
 
         # Multi-strategy equity curves
@@ -299,7 +310,7 @@ else:
                              legend=dict(orientation="h", y=1.02))
         fig_bm.update_xaxes(showgrid=False)
         fig_bm.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-        st.plotly_chart(fig_bm, width="stretch")
+        st.plotly_chart(fig_bm, use_container_width=True)
 
     # ── Trade log ─────────────────────────────────────────────────────────────
     st.subheader(f"Trade Log  ({len(trades_df)} trades)")
@@ -316,6 +327,6 @@ else:
             _pnl_styled = _pnl_styler.applymap(_color_pnl, subset=["PnL $"])
         else:
             _pnl_styled = trades_df
-        st.dataframe(_pnl_styled, width="stretch")
+        st.dataframe(_pnl_styled, use_container_width=True)
     else:
         st.write("No trades executed in the test period.")

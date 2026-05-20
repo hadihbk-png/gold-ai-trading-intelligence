@@ -361,6 +361,10 @@ k2.metric("Accuracy", _accuracy(scored["correct"] if not scored.empty else pd.Se
 k3.metric("Buy Accuracy", _accuracy(scored.loc[scored["signal"].str.upper().isin(["UP", "BUY"]), "correct"] if not scored.empty else pd.Series(dtype=object)))
 k4.metric("Sell Accuracy", _accuracy(scored.loc[scored["signal"].str.upper().isin(["DOWN", "SELL"]), "correct"] if not scored.empty else pd.Series(dtype=object)))
 k5.metric("Sideways Accuracy", _accuracy(scored.loc[scored["signal"].str.upper().eq("SIDEWAYS"), "correct"] if not scored.empty else pd.Series(dtype=object)))
+st.caption(
+    "Accuracy calculated on REAL predictions only. "
+    "BACKFILLED audit rows have no signal and are excluded from all accuracy metrics."
+)
 
 st.divider()
 st.subheader("Validation Table")
@@ -369,7 +373,24 @@ display_df = log_df.sort_values("prediction_date", ascending=False).copy()
 for col in ["gold_price", "confidence", "prob_down", "prob_sideways", "prob_up", "atr", "vix", "actual_price", "actual_move_pct"]:
     if col in display_df.columns:
         display_df[col] = pd.to_numeric(display_df[col], errors="coerce").round(3)
-st.dataframe(display_df, hide_index=True, width="stretch")
+
+# Tag each row as REAL or BACKFILLED and move to first column (display only, not saved to CSV)
+display_df.insert(0, "Source", np.where(
+    display_df["timestamp_utc"].astype(str) == "BACKFILLED", "BACKFILLED", "REAL"
+))
+
+# Replace NaN with "—" for BACKFILLED rows so the table is readable
+_backfill_mask = display_df["Source"] == "BACKFILLED"
+_blank_cols = [
+    "signal", "confidence", "prob_down", "prob_sideways", "prob_up",
+    "regime", "atr", "vix", "actual_date", "actual_price", "actual_move_pct", "correct",
+]
+for _col in _blank_cols:
+    if _col in display_df.columns:
+        display_df.loc[_backfill_mask, _col] = display_df.loc[_backfill_mask, _col].fillna("—")
+
+st.dataframe(display_df, hide_index=True, use_container_width=True)
+st.caption("REAL = live prediction captured by the model · BACKFILLED = audit gap row (price only, no signal)")
 
 st.divider()
 c1, c2 = st.columns(2)
@@ -393,7 +414,7 @@ with c1:
         ))
         fig_acc.add_hline(y=0, line_color="rgba(255,255,255,0.2)", line_width=1)
         fig_acc.update_layout(yaxis_title="Correct - Incorrect", xaxis_title="Scored Observation")
-        st.plotly_chart(_dark(fig_acc), width="stretch")
+        st.plotly_chart(_dark(fig_acc), use_container_width=True)
 
 with c2:
     st.subheader("Confidence vs Correctness")
@@ -416,4 +437,4 @@ with c2:
         fig_conf.add_hline(y=DIRECTION_THRESHOLD * 100, line_color="#888", line_dash="dot")
         fig_conf.add_hline(y=-DIRECTION_THRESHOLD * 100, line_color="#888", line_dash="dot")
         fig_conf.update_layout(xaxis_title="Confidence (%)", yaxis_title="Actual Move (%)")
-        st.plotly_chart(_dark(fig_conf), width="stretch")
+        st.plotly_chart(_dark(fig_conf), use_container_width=True)
