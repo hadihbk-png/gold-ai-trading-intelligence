@@ -95,6 +95,8 @@ def _load_log() -> pd.DataFrame:
             1: True,
             0: False,
         })
+        # pandas 3.x: .map() on an all-NaN Series infers float64; re-enforce object
+        log["correct"] = log["correct"].astype(object)
     return log[COLUMNS]
 
 
@@ -140,11 +142,17 @@ def _score_open_predictions(log: pd.DataFrame, df: pd.DataFrame) -> pd.DataFrame
         return log
 
     scored = log.copy()
-    # Ensure actual_date is object dtype so string assignment never hits a float64 column
+    # Enforce object dtypes unconditionally — pandas 3.x raises TypeError on dtype-incompatible
+    # .at[] assignments (e.g. assigning a string to a float64 column).  astype(object) on an
+    # already-object column is a no-op, so this is safe to call unconditionally.
     if "actual_date" not in scored.columns:
         scored["actual_date"] = pd.Series(dtype=object)
-    elif scored["actual_date"].dtype != object:
+    else:
         scored["actual_date"] = scored["actual_date"].astype(object)
+    if "correct" not in scored.columns:
+        scored["correct"] = pd.Series(dtype=object)
+    else:
+        scored["correct"] = scored["correct"].astype(object)
 
     prices = df[["Close"]].copy()
     prices.index = pd.to_datetime(prices.index).normalize()

@@ -17,6 +17,7 @@ Dashboard, or Risk Management files were changed.
 | 6 | 2026-05-20 | pages/4_Live_Validation.py        | Confusing NaNs    | BACKFILLED rows showed raw NaN in signal/confidence/etc columns | NaN replaced with "—" in display copy only; CSV unchanged |
 | 7 | 2026-05-20 | pages/4_Live_Validation.py        | Missing caveat    | No UI note confirming BACKFILLED rows are excluded from accuracy | Added caption below KPI metrics |
 | 8 | 2026-05-20 | pages/4_Live_Validation.py        | Deprecated API    | `width="stretch"` deprecated | Replaced with `use_container_width=True` |
+| 9 | 2026-05-20 | pages/4_Live_Validation.py        | Runtime crash     | `TypeError: Invalid value '...' for dtype 'float64'` in `_score_open_predictions` on Streamlit Cloud (pandas 3.x) | Enforced object dtype for `actual_date` and `correct` before all `.at[]` assignments |
 
 ---
 
@@ -93,6 +94,43 @@ excluded. A reader could wonder whether the counts were inflated.
 This is consistent with the existing code behaviour: `_score_open_predictions` already
 skips rows where `signal` is NaN (the BACKFILLED sentinel), and `scored` is filtered to
 `log_df[log_df["correct"].notna()]` which further excludes them.
+
+---
+
+---
+
+## Fix 9 — pandas 3.x dtype compatibility (`actual_date` / `correct`)
+
+**File:** `pages/4_Live_Validation.py`
+**Error:** `TypeError: Invalid value '2026-05-18' for dtype 'float64'` inside
+`_score_open_predictions` on Streamlit Cloud.
+
+**Root cause:** Two gaps in dtype enforcement combined to leave columns as `float64`
+at the moment of `.at[]` assignment — which pandas 3.x now enforces strictly:
+
+1. `_load_log()` called `.map({True: True, False: False, ...})` on `correct` after
+   `astype(object)`. In pandas 3.x, `.map()` on an all-NaN input Series infers the
+   result dtype as `float64` (not `object`), silently reverting the earlier cast.
+
+2. `_score_open_predictions()` had an unconditional dtype guard only for `actual_date`,
+   with no corresponding guard for `correct`. If `correct` arrived as `float64`,
+   `scored.at[idx, "correct"] = bool(...)` would raise the same TypeError.
+
+**Fix:**
+
+- `_load_log()`: added `log["correct"] = log["correct"].astype(object)` immediately
+  after the `.map()` call to re-enforce object dtype.
+
+- `_score_open_predictions()`: made the `actual_date` guard unconditional (removed
+  the `elif dtype != object` branch — `astype(object)` on an already-object column is
+  a safe no-op). Added an equivalent unconditional guard for `correct`.
+
+**What was NOT changed:**
+- No model logic, training, data files, Dashboard, Risk Management, or Historical
+  Performance files were touched.
+- `log_df` and `live_validation_log.csv` schema are unchanged.
+- The display-only `"—"` replacement in `display_df` continues to be isolated from
+  `log_df` (applied to a `.copy()` only).
 
 ---
 
