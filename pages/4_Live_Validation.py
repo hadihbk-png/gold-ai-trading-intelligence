@@ -363,6 +363,84 @@ scored = log_df[log_df["correct"].notna()].copy()
 if not scored.empty:
     scored["correct_bool"] = scored["correct"].astype(bool)
 
+# ── Extended Statistical Validation Summary ───────────────────────────────────
+st.divider()
+st.subheader("Extended Statistical Validation")
+
+# REAL rows only (BACKFILLED audit rows excluded throughout)
+_esv_real         = log_df[log_df["timestamp_utc"].astype(str) != "BACKFILLED"].copy()
+_esv_total_preds  = len(_esv_real)
+
+# Scored REAL rows
+_esv_scored       = _esv_real[_esv_real["correct"].notna()].copy()
+_esv_total_scored = len(_esv_scored)
+if not _esv_scored.empty:
+    _esv_scored["_cb"] = _esv_scored["correct"].astype(bool)
+
+# Derived stats
+_esv_overall_acc = _esv_scored["_cb"].mean() * 100 if _esv_total_scored > 0 else None
+
+if _esv_total_scored > 0:
+    _esv_sw           = _esv_scored[_esv_scored["signal"].astype(str).str.upper().eq("SIDEWAYS")]
+    _esv_sideways_acc = _esv_sw["_cb"].mean() * 100 if len(_esv_sw) > 0 else None
+    _esv_conf_c       = _esv_scored.loc[_esv_scored["_cb"], "confidence"].dropna()
+    _esv_conf_i       = _esv_scored.loc[~_esv_scored["_cb"], "confidence"].dropna()
+    _esv_avg_conf_c   = _esv_conf_c.mean() if len(_esv_conf_c) > 0 else None
+    _esv_avg_conf_i   = _esv_conf_i.mean() if len(_esv_conf_i) > 0 else None
+    _esv_last5        = _esv_scored.sort_values("prediction_date").tail(5)
+    _esv_last5_acc    = _esv_last5["_cb"].mean() * 100
+else:
+    _esv_sideways_acc = _esv_avg_conf_c = _esv_avg_conf_i = _esv_last5_acc = None
+
+_esv_fmt = lambda v, s="": f"{v:.1f}{s}" if v is not None else "—"
+
+# Rolling accuracy metrics row
+e1, e2, e3, e4, e5, e6 = st.columns(6)
+e1.metric("Total Predictions",    _esv_total_preds,
+          help="REAL snapshot rows only — BACKFILLED audit rows excluded")
+e2.metric("Total Scored",         _esv_total_scored)
+e3.metric("Overall Accuracy",     _esv_fmt(_esv_overall_acc,  "%"))
+e4.metric("Sideways Accuracy",    _esv_fmt(_esv_sideways_acc, "%"))
+e5.metric("Avg Conf — Correct",   _esv_fmt(_esv_avg_conf_c,  "%"))
+e6.metric("Avg Conf — Incorrect", _esv_fmt(_esv_avg_conf_i,  "%"))
+
+# Observation status banner
+if _esv_total_scored < 30:
+    st.warning(
+        "Early Stage — Minimum 30 observations needed "
+        "for statistically meaningful conclusions."
+    )
+elif _esv_total_scored < 100:
+    st.info("Developing — Results becoming more indicative.")
+else:
+    st.success("Statistically Meaningful — Results are reliable.")
+
+# Trend indicator: last 5 scored vs overall
+if _esv_last5_acc is not None and _esv_overall_acc is not None:
+    _esv_delta = _esv_last5_acc - _esv_overall_acc
+    _esv_arrow, _esv_tcolor, _esv_tlbl = (
+        ("↑", "#00CC88", "Improving") if _esv_delta > 0 else
+        ("↓", "#FF4B4B", "Declining") if _esv_delta < 0 else
+        ("→", "#888888", "Stable")
+    )
+    st.markdown(
+        f"""<div style="margin:10px 0;padding:10px 16px;background:#1e2130;
+            border-radius:8px;display:inline-block;">
+            <span style="font-size:0.82em;color:#aaa;">Last 5 scored &nbsp;</span>
+            <span style="font-weight:bold;color:white;">{_esv_last5_acc:.1f}%</span>
+            <span style="font-size:1.15em;color:{_esv_tcolor};margin-left:10px;">
+                {_esv_arrow} {_esv_tlbl}</span>
+            <span style="font-size:0.78em;color:#888;margin-left:8px;">
+                vs {_esv_overall_acc:.1f}% overall</span>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+st.caption(
+    "⚠️ Accuracy statistics are based on live out-of-sample predictions only. "
+    "Extended observation is required before drawing performance conclusions."
+)
+
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Total Observations", int(len(scored)))
 k2.metric("Accuracy", _accuracy(scored["correct"] if not scored.empty else pd.Series(dtype=object)))
