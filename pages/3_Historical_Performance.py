@@ -258,9 +258,9 @@ else:
         fill="tozeroy", fillcolor="rgba(255,75,75,0.18)",
         line=dict(color="#FF4B4B"), name="Drawdown",
     ))
-    fig_dd2.update_layout(**_PLT, height=200, yaxis_title="Drawdown (%)")
+    fig_dd2.update_layout(**_PLT, height=300, yaxis_title="Drawdown (%)")
     fig_dd2.update_xaxes(showgrid=False)
-    fig_dd2.update_yaxes(showgrid=True, gridcolor=GRID_CLR, nticks=5, tickformat=".1f")
+    fig_dd2.update_yaxes(showgrid=True, gridcolor=GRID_CLR, nticks=3, tickformat=".1f")
     st.plotly_chart(fig_dd2, use_container_width=True)
 
     # ── Benchmark comparison ──────────────────────────────────────────────────
