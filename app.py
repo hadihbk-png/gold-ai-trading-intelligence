@@ -26,7 +26,7 @@ from src.signals import generate_latest_signal, SIGNAL_LABELS, SIGNAL_COLORS
 from src.train import train_all_models, save_models, load_models
 from src.backtest import run_backtest
 from src.benchmarks import run_all_benchmarks
-from src.alerts import send_signal_alert, already_sent_today
+from src.alerts import send_signal_alert, already_sent_today, send_risk_alert, risk_alert_eligible
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -49,7 +49,7 @@ def _dark(fig, height=420):
 # ── Session state ──────────────────────────────────────────────────────────────
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
-         "signal", "regime_info", "refresh_key", "alert_status")
+         "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -256,6 +256,22 @@ if st.session_state.alert_status == "ready" and signal:
             st.session_state.alert_status = "not_configured"
     else:
         st.session_state.alert_status = "no_alert"
+
+# ── Risk alert trigger ────────────────────────────────────────────────────────
+# Evaluated on every page load; cooldown and daily cap enforced inside module.
+_ra_eligible, _ = risk_alert_eligible()
+if _ra_eligible and df is not None:
+    _ra_sender    = st.secrets.get("GMAIL_SENDER", "")
+    _ra_password  = st.secrets.get("GMAIL_APP_PASSWORD", "")
+    _ra_recipient = st.secrets.get("ALERT_RECIPIENT", "")
+    if _ra_sender and _ra_password and _ra_recipient:
+        _ra_ok, _ra_msg = send_risk_alert(
+            df, float(df["Close"].iloc[-1]),
+            signal, _ra_sender, _ra_password, _ra_recipient,
+        )
+        st.session_state.risk_alert_status = "sent" if _ra_ok else _ra_msg
+    else:
+        st.session_state.risk_alert_status = "not_configured"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
