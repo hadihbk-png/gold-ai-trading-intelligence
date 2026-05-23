@@ -260,7 +260,7 @@ else:
     ))
     fig_dd2.update_layout(**_PLT, height=300, yaxis_title="Drawdown (%)")
     fig_dd2.update_xaxes(showgrid=False)
-    fig_dd2.update_yaxes(showgrid=True, gridcolor=GRID_CLR, nticks=3, tickformat=".1f")
+    fig_dd2.update_yaxes(showgrid=True, gridcolor=GRID_CLR, autorange=True, tickformat=".2f")
     st.plotly_chart(fig_dd2, use_container_width=True)
 
     # ── Benchmark comparison ──────────────────────────────────────────────────
