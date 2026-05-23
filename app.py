@@ -354,6 +354,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+_ra_status = st.session_state.risk_alert_status or ""
+if not _ra_status:
+    _ra_icon, _ra_color, _ra_text = "🔔", "#888888", "Risk monitor: ready"
+elif _ra_status == "sent":
+    _ra_icon, _ra_color, _ra_text = "🟠", "#FFA500", "Risk alert sent"
+elif _ra_status == "not_configured":
+    _ra_icon, _ra_color, _ra_text = "⚙️",  "#FFA500", "Risk alert not configured"
+elif _ra_status.startswith("insufficient_conditions"):
+    _ra_icon, _ra_color, _ra_text = "🟢", "#00CC88", "Risk monitor: no conditions triggered"
+elif _ra_status.startswith("cooldown"):
+    _ra_icon, _ra_color, _ra_text = "🟠", "#FFA500", f"Risk monitor: {_ra_status}"
+elif _ra_status.startswith("daily_cap"):
+    _ra_icon, _ra_color, _ra_text = "🟠", "#FFA500", "Risk monitor: daily cap reached (3/day)"
+else:
+    _ra_icon, _ra_color, _ra_text = "⚠️",  "#FF4B4B", "Risk alert error — check SMTP settings"
+st.markdown(
+    f'<span style="font-size:0.8em;color:{_ra_color}">{_ra_icon} {_ra_text}</span>',
+    unsafe_allow_html=True,
+)
+
 # ── Probability breakdown ─────────────────────────────────────────────────────
 if signal and signal.get("proba_vec"):
     pv = signal["proba_vec"]
