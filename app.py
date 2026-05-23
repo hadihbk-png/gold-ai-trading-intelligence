@@ -26,6 +26,7 @@ from src.signals import generate_latest_signal, SIGNAL_LABELS, SIGNAL_COLORS
 from src.train import train_all_models, save_models, load_models
 from src.backtest import run_backtest
 from src.benchmarks import run_all_benchmarks
+from src.alerts import send_signal_alert, already_sent_today
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -48,7 +49,7 @@ def _dark(fig, height=420):
 # ── Session state ──────────────────────────────────────────────────────────────
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
-         "signal", "regime_info", "refresh_key")
+         "signal", "regime_info", "refresh_key", "alert_status")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -228,6 +229,34 @@ signal      = st.session_state.signal
 regime_info = st.session_state.regime_info
 models_ok   = st.session_state.reg_results is not None
 
+# ── Email alert trigger ───────────────────────────────────────────────────────
+# Initialise status from file on first page load
+if st.session_state.alert_status is None:
+    st.session_state.alert_status = "sent" if already_sent_today() else "ready"
+
+# Only attempt if status is still "ready" (not yet sent or errored this session)
+if st.session_state.alert_status == "ready" and signal:
+    _alert_conditions = (
+        signal["signal_int"] in (0, 2)            # UP or DOWN only
+        and signal.get("confidence_pct", 0) > 60  # above 60% confidence
+        and not signal.get("filter_reason")        # No Trade filter NOT active
+    )
+    if _alert_conditions:
+        _al_sender    = st.secrets.get("GMAIL_SENDER", "")
+        _al_password  = st.secrets.get("GMAIL_APP_PASSWORD", "")
+        _al_recipient = st.secrets.get("ALERT_RECIPIENT", "")
+        if _al_sender and _al_password and _al_recipient:
+            _al_ok, _al_msg = send_signal_alert(
+                signal, regime_info, _al_sender, _al_password, _al_recipient
+            )
+            st.session_state.alert_status = (
+                "sent" if (_al_ok or _al_msg == "already_sent_today") else "error"
+            )
+        else:
+            st.session_state.alert_status = "not_configured"
+    else:
+        st.session_state.alert_status = "no_alert"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
@@ -292,6 +321,22 @@ else:
     c4.metric("Market Regime", "—")
 
 st.caption(f"Last bar: {last_date}")
+
+_al_map = {
+    "sent":           ("📧", "#00CC88", "Alert sent today"),
+    "no_alert":       ("🔕", "#888888", "No alert today — conditions not met"),
+    "ready":          ("🔔", "#888888", "Alert system ready"),
+    "not_configured": ("⚙️",  "#FFA500", "Alert not configured — add GMAIL_SENDER, GMAIL_APP_PASSWORD, ALERT_RECIPIENT to secrets"),
+    "error":          ("⚠️",  "#FF4B4B", "Alert error — check secrets or SMTP settings"),
+}
+_al_icon, _al_color, _al_text = _al_map.get(
+    st.session_state.alert_status or "ready",
+    ("🔔", "#888888", "Alert system ready"),
+)
+st.markdown(
+    f'<span style="font-size:0.8em;color:{_al_color}">{_al_icon} {_al_text}</span>',
+    unsafe_allow_html=True,
+)
 
 # ── Probability breakdown ─────────────────────────────────────────────────────
 if signal and signal.get("proba_vec"):
