@@ -188,6 +188,22 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
         df[f"Breakout_High{n}"] = close / rolling_high - 1
         df[f"Breakout_Low{n}"]  = close / rolling_low  - 1
 
+    # ── Phase 3A: enriched indicators ────────────────────────────────────────
+    df["EMA_9"]  = close.ewm(span=9,  adjust=False).mean()
+    df["EMA_21"] = close.ewm(span=21, adjust=False).mean()
+    df["EMA9_21_Cross"] = (df["EMA_9"] > df["EMA_21"]).astype(int)
+
+    df["ROC_5"]  = close.pct_change(5)  * 100
+    df["ROC_10"] = close.pct_change(10) * 100
+
+    _wr_high  = high.rolling(14).max()
+    _wr_low   = low.rolling(14).min()
+    _wr_range = (_wr_high - _wr_low).replace(0, np.nan)
+    df["Williams_R"] = -100 * (_wr_high - close) / _wr_range
+
+    df["DayOfWeek"] = df.index.dayofweek   # 0=Mon … 4=Fri
+    df["Month"]     = df.index.month       # 1–12
+
     # Targets (shift -1 → next-day; last row gets NaN → dropped at training)
     df["Target_Close"] = close.shift(-1)
     df["Target_Return"] = close.pct_change().shift(-1)

@@ -2,7 +2,9 @@
 Gold AI Decision Intelligence Platform — Dashboard
 Streamlit multi-page app  |  NOT FINANCIAL ADVICE  |  Personal research only
 """
+import json
 import os, sys, warnings, time
+from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,7 +18,7 @@ from src.config import (
     PRIMARY_TICKER, TRAIN_YEARS, TEST_YEARS, N_TRIALS,
     INITIAL_CAPITAL, MIN_CONFIDENCE, MAX_ATR_PCT,
     MAX_DRAWDOWN_HALT, MAX_DAILY_LOSS_PCT, FRED_API_KEY,
-    BULL_UP_CONF_RELAXED, BULL_REGIME_ENABLED,
+    BULL_UP_CONF_RELAXED, BULL_REGIME_ENABLED, DATA_DIR,
 )
 from src.data_loader import download_data, get_train_test_split, get_live_spot_price
 from src.features import add_features
@@ -27,6 +29,7 @@ from src.train import train_all_models, save_models, load_models
 from src.backtest import run_backtest
 from src.benchmarks import run_all_benchmarks
 from src.alerts import send_signal_alert, already_sent_today, send_risk_alert, risk_alert_eligible
+from src.wfv import run_wfv
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -38,6 +41,27 @@ st.set_page_config(
 
 DARK_BG  = "#0e1117"
 GRID_CLR = "#1e2130"
+
+_RETRAIN_LOG = os.path.join(DATA_DIR, "model_retrain_log.json")
+_UAE_TZ      = timezone(timedelta(hours=4))
+
+
+def _read_retrain_log() -> dict:
+    blank = {"last_retrain_utc": "", "last_bar_date": ""}
+    if not os.path.exists(_RETRAIN_LOG):
+        return blank
+    try:
+        with open(_RETRAIN_LOG) as f:
+            return {**blank, **json.load(f)}
+    except Exception:
+        return blank
+
+
+def _write_retrain_log(last_bar_date: str) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(_RETRAIN_LOG, "w") as f:
+        json.dump({"last_retrain_utc": datetime.now(timezone.utc).isoformat(),
+                   "last_bar_date": last_bar_date}, f)
 _PLT = dict(plot_bgcolor=DARK_BG, paper_bgcolor=DARK_BG, font=dict(color="white"))
 
 def _dark(fig, height=420):
@@ -49,7 +73,8 @@ def _dark(fig, height=420):
 # ── Session state ──────────────────────────────────────────────────────────────
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
-         "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status")
+         "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status",
+         "wfv_results")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -78,8 +103,9 @@ with st.sidebar:
     st.divider()
 
     col_r, col_t = st.columns(2)
-    refresh_btn = col_r.button("🔄 Refresh", width="stretch")
-    train_btn   = col_t.button("🚀 Train",   width="stretch", type="primary")
+    refresh_btn   = col_r.button("🔄 Refresh",     width="stretch")
+    train_btn     = col_t.button("🚀 Train",        width="stretch", type="primary")
+    auto_retrain_btn = st.button("⚡ Auto-Retrain (fast, no Optuna)", width="stretch")
 
     st.divider()
     fred_key = st.text_input(
@@ -183,6 +209,68 @@ if train_btn:
             import traceback
             status.update(label=f"❌ {exc}", state="error")
             st.error(traceback.format_exc())
+
+# ── Auto-Retrain (3C) ─────────────────────────────────────────────────────────
+_retrain_log    = _read_retrain_log()
+_cur_bar_date   = (df.index[-1].strftime("%Y-%m-%d")
+                   if hasattr(df.index[-1], "strftime") else str(df.index[-1])[:10])
+_models_trained = st.session_state.reg_results is not None
+_new_bar        = _models_trained and _retrain_log["last_bar_date"] != _cur_bar_date
+_hp_available   = (_models_trained
+                   and st.session_state.clf_results is not None
+                   and "_hyperparams" in st.session_state.clf_results)
+
+if (auto_retrain_btn or _new_bar) and _hp_available:
+    _pretrained_hp = st.session_state.clf_results["_hyperparams"]
+    _trigger_label = "Manual auto-retrain" if auto_retrain_btn else f"New bar detected ({_cur_bar_date})"
+    train_df, test_df = get_train_test_split(df)
+    with st.status(f"⚡ {_trigger_label} — retraining with saved hyperparams…", expanded=True) as _ar_status:
+        _ar_log_box = st.empty()
+        _ar_msgs: list[str] = []
+
+        def _ar_log(msg: str):
+            _ar_msgs.append(msg)
+            _ar_log_box.markdown("\n".join(f"• {m}" for m in _ar_msgs[-15:]))
+
+        try:
+            reg_r, clf_r, feat, sr, sc = train_all_models(
+                train_df, test_df,
+                n_trials=N_TRIALS,
+                pretrained_hyperparams=_pretrained_hp,
+                progress_callback=_ar_log,
+            )
+            _ar_log("Running backtest…")
+            stk_preds  = clf_r["Stacking"]["predictions"]
+            stk_probas = clf_r["Stacking"].get("probabilities")
+            test_dates = clf_r["Stacking"]["test_dates"]
+            from src.regime import detect_regime
+            regime_s   = detect_regime(df).reindex(test_dates)
+            eq, bh, trades_df, bt_m = run_backtest(
+                df, stk_preds, test_dates,
+                clf_probas=stk_probas, regime_series=regime_s,
+            )
+            bm = run_all_benchmarks(df, test_dates, initial_capital=INITIAL_CAPITAL)
+            _ar_log("Saving models…")
+            save_models(reg_r, clf_r, feat, sr, sc)
+            _write_retrain_log(_cur_bar_date)
+
+            st.session_state.reg_results      = reg_r
+            st.session_state.clf_results      = clf_r
+            st.session_state.feature_cols     = feat
+            st.session_state.stack_reg        = sr
+            st.session_state.stack_clf        = sc
+            st.session_state.backtest_results = (eq, bh, trades_df, bt_m)
+            st.session_state.benchmark_results = bm
+            st.session_state.signal           = None  # force regeneration
+
+            _ar_status.update(label="✅ Auto-retrain complete!", state="complete")
+            st.rerun()
+        except Exception as exc:
+            import traceback
+            _ar_status.update(label=f"❌ {exc}", state="error")
+            st.error(traceback.format_exc())
+elif auto_retrain_btn and not _hp_available:
+    st.sidebar.warning("Auto-retrain requires a trained model with saved hyperparams. Run full Train first.")
 
 # ── Auto-generate signal + regime if models loaded but signal missing ──────────
 if st.session_state.reg_results is not None:
@@ -337,6 +425,16 @@ else:
     c4.metric("Market Regime", "—")
 
 st.caption(f"Last bar: {last_date}")
+
+# ── Model last-retrained timestamp (3C) ───────────────────────────────────────
+_rl = _read_retrain_log()
+if _rl["last_retrain_utc"]:
+    try:
+        _lr_dt  = datetime.fromisoformat(_rl["last_retrain_utc"])
+        _lr_uae = _lr_dt.astimezone(_UAE_TZ)
+        st.caption(f"Model last retrained: {_lr_uae.strftime('%Y-%m-%d at %H:%M UAE')}")
+    except Exception:
+        pass
 
 _al_map = {
     "sent":           ("📧", "#00CC88", "Alert sent today"),
@@ -600,3 +698,250 @@ if signal:
 
 if not models_ok:
     st.info("👆 Press **Train** in the sidebar to generate the AI signal. First run takes 15–30 min.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3A — Feature Importance
+# ══════════════════════════════════════════════════════════════════════════════
+st.divider()
+with st.expander("📊 Feature Importance (Top 15)", expanded=False):
+    if not models_ok:
+        st.info("Train the model to see feature importances.")
+    else:
+        _fi_data, _fi_model_name = None, None
+        for _mn in ["XGBoost", "LightGBM", "CatBoost"]:
+            _mc = st.session_state.clf_results.get(_mn, {}) if st.session_state.clf_results else {}
+            _fi = _mc.get("feature_importance")
+            if _fi is not None and len(_fi) > 0:
+                _fi_data, _fi_model_name = _fi, _mn
+                break
+
+        _feat_cols = st.session_state.feature_cols or []
+        if _fi_data is not None and _feat_cols:
+            _fi_df = (
+                pd.DataFrame({"Feature": _feat_cols[:len(_fi_data)], "Importance": _fi_data})
+                .sort_values("Importance", ascending=False)
+                .head(15)
+            )
+            _fi_fig = go.Figure(go.Bar(
+                x=_fi_df["Importance"], y=_fi_df["Feature"],
+                orientation="h", marker_color="#00CC88",
+            ))
+            _fi_fig.update_layout(
+                **_PLT, height=420,
+                yaxis=dict(autorange="reversed"),
+                xaxis_title="Importance Score",
+                margin=dict(l=180, r=20, t=30, b=40),
+            )
+            _fi_fig.update_xaxes(showgrid=True, gridcolor=GRID_CLR)
+            _fi_fig.update_yaxes(showgrid=False)
+            st.caption(f"Source: {_fi_model_name} classifier — top 15 of {len(_feat_cols)} features")
+            st.plotly_chart(_fi_fig, width="stretch")
+        else:
+            st.info("Feature importance data not available — retrain the model.")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3B — Walk-Forward Validation
+# ══════════════════════════════════════════════════════════════════════════════
+with st.expander("🔄 Walk-Forward Validation", expanded=False):
+    if not models_ok:
+        st.info("Train the model first to run walk-forward validation.")
+    else:
+        _wfv_col1, _wfv_col2 = st.columns([3, 1])
+        _wfv_col1.markdown(
+            "LightGBM rolling walk-forward: **252-bar train · 21-bar test · 21-bar step**. "
+            "Each fold is an independent out-of-sample period. Takes ~1 min."
+        )
+        _run_wfv = _wfv_col2.button("▶ Run WFV", key="wfv_run_btn")
+
+        if _run_wfv:
+            _wfv_feat = [c for c in (st.session_state.feature_cols or []) if c in df.columns]
+            with st.spinner("Running walk-forward validation…"):
+                st.session_state.wfv_results = run_wfv(df, _wfv_feat)
+
+        _wfv = st.session_state.wfv_results
+        if _wfv:
+            if "error" in _wfv:
+                st.warning(_wfv["error"])
+            else:
+                _wc1, _wc2, _wc3, _wc4 = st.columns(4)
+                _wc1.metric("Folds", _wfv["n_folds"])
+                _wc2.metric("Mean Accuracy", f"{_wfv['mean_accuracy']:.1f}%")
+                _wc3.metric("Std Accuracy",  f"{_wfv['std_accuracy']:.1f}%")
+                _wc4.metric("Folds > 50%",  f"{_wfv['beat_50pct']} / {_wfv['n_folds']}")
+
+                _wfv_fold_df = pd.DataFrame(_wfv["folds"])
+                _wfv_fold_df["start"]    = _wfv_fold_df["start"].astype(str)
+                _wfv_fold_df["end"]      = _wfv_fold_df["end"].astype(str)
+                _wfv_fold_df["accuracy"] = _wfv_fold_df["accuracy"].round(1)
+                st.dataframe(_wfv_fold_df.rename(columns={
+                    "fold": "Fold", "start": "Test Start", "end": "Test End",
+                    "accuracy": "Accuracy (%)", "n_predictions": "Predictions",
+                }), hide_index=True, use_container_width=True)
+
+                _wfv_fig = go.Figure()
+                _wfv_fig.add_trace(go.Scatter(
+                    x=[f["end"] for f in _wfv["folds"]],
+                    y=[f["accuracy"] for f in _wfv["folds"]],
+                    mode="lines+markers", name="Fold Accuracy",
+                    line=dict(color="#00CC88", width=2),
+                    marker=dict(size=8),
+                ))
+                _wfv_fig.add_hline(
+                    y=50, line=dict(color="#FFA500", dash="dash", width=1),
+                    annotation_text="50% baseline", annotation_position="bottom right",
+                )
+                _dark(_wfv_fig, height=280)
+                _wfv_fig.update_layout(xaxis_title="Fold End Date", yaxis_title="Accuracy (%)")
+                st.plotly_chart(_wfv_fig, width="stretch")
+
+                _beat_pct = _wfv["beat_50pct"] / _wfv["n_folds"] * 100
+                if _beat_pct >= 70:
+                    _wfv_colour, _wfv_verdict = "success", "Strong"
+                elif _beat_pct >= 50:
+                    _wfv_colour, _wfv_verdict = "info", "Moderate"
+                else:
+                    _wfv_colour, _wfv_verdict = "warning", "Weak"
+                _wfv_interp = (
+                    f"**Walk-Forward Verdict — {_wfv_verdict}**: "
+                    f"{_wfv['beat_50pct']} of {_wfv['n_folds']} folds beat random chance. "
+                    f"Mean accuracy {_wfv['mean_accuracy']:.1f}% ± {_wfv['std_accuracy']:.1f}% "
+                    f"(range {_wfv['min_accuracy']:.1f}%–{_wfv['max_accuracy']:.1f}%). "
+                    + ("Model generalises well across time." if _beat_pct >= 70
+                       else "Results are mixed — consider more data or feature review." if _beat_pct >= 50
+                       else "Model struggles out-of-sample — retrain with a larger dataset.")
+                )
+                getattr(st, _wfv_colour)(_wfv_interp)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 3D — Backtesting Deep-Dive
+# ══════════════════════════════════════════════════════════════════════════════
+with st.expander("📈 Backtesting Deep-Dive", expanded=False):
+    _stk = (st.session_state.clf_results or {}).get("Stacking", {})
+    _bt_preds  = _stk.get("predictions")
+    _bt_y      = _stk.get("y_test")
+    _bt_probas = _stk.get("probabilities")
+    _bt_dates  = _stk.get("test_dates")
+
+    if _bt_preds is None or _bt_y is None or _bt_dates is None:
+        st.info("Train the model to unlock the backtesting deep-dive.")
+    else:
+        _bt = pd.DataFrame({"y_true": _bt_y, "y_pred": _bt_preds}, index=_bt_dates)
+        _bt.index = pd.to_datetime(_bt.index)
+        if _bt_probas is not None:
+            _bt["conf"] = np.array(_bt_probas).max(axis=1)
+        _bt["correct"] = (_bt["y_true"] == _bt["y_pred"]).astype(int)
+
+        # ── Panel 1: Summary stats ────────────────────────────────────────────
+        st.markdown("**Summary Statistics**")
+        _tot    = len(_bt)
+        _acc    = _bt["correct"].mean() * 100
+        _dir_bt = _bt[_bt["y_true"] != 1]
+        _dir_acc = (_dir_bt["y_true"] == _dir_bt["y_pred"]).mean() * 100 if len(_dir_bt) else 0.0
+        _bd1, _bd2, _bd3, _bd4 = st.columns(4)
+        _bd1.metric("Total Predictions", _tot)
+        _bd2.metric("Overall Accuracy",  f"{_acc:.1f}%")
+        _bd3.metric("Directional Accuracy", f"{_dir_acc:.1f}%",
+                    help="UP/DOWN only — excludes SIDEWAYS true labels")
+        _bd4.metric("Test Period",
+                    f"{_bt.index[0].strftime('%b %Y')} – {_bt.index[-1].strftime('%b %Y')}")
+
+        # Class-wise
+        _cls_cols = st.columns(3)
+        for _ci, (_cls_int, _cls_lbl, _cls_clr) in enumerate(
+            [(0, "DOWN", "#FF4B4B"), (1, "SIDEWAYS", "#888888"), (2, "UP", "#00CC88")]
+        ):
+            _cls_df  = _bt[_bt["y_true"] == _cls_int]
+            _cls_acc = (_cls_df["y_true"] == _cls_df["y_pred"]).mean() * 100 if len(_cls_df) else 0.0
+            _cls_cols[_ci].metric(f"{_cls_lbl} Accuracy", f"{_cls_acc:.1f}%",
+                                  f"{len(_cls_df)} samples")
+
+        st.divider()
+
+        # ── Panel 2: Regime breakdown ─────────────────────────────────────────
+        try:
+            _reg_s = detect_regime(df).reindex(_bt.index)
+            _bt["regime"] = _reg_s.values
+            _reg_grp = (
+                _bt.groupby("regime")["correct"]
+                .agg(accuracy=lambda x: x.mean() * 100, count="count")
+                .reset_index()
+            )
+            _reg_grp.columns = ["Regime", "Accuracy (%)", "Predictions"]
+            _reg_grp["Accuracy (%)"] = _reg_grp["Accuracy (%)"].round(1)
+            st.markdown("**Accuracy by Market Regime**")
+            st.dataframe(_reg_grp, hide_index=True, use_container_width=True)
+            st.divider()
+        except Exception:
+            pass
+
+        # ── Panel 3: Rolling 30-day win rate ──────────────────────────────────
+        st.markdown("**Rolling 30-Day Win Rate**")
+        _roll_acc = _bt["correct"].rolling(30, min_periods=5).mean() * 100
+        _roll_fig = go.Figure()
+        _roll_fig.add_trace(go.Scatter(
+            x=_bt.index, y=_roll_acc,
+            mode="lines", name="30-Day Accuracy",
+            line=dict(color="#00CC88", width=2),
+            fill="tozeroy", fillcolor="rgba(0,204,136,0.10)",
+        ))
+        _roll_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+        _dark(_roll_fig, height=260)
+        _roll_fig.update_layout(yaxis_title="Accuracy (%)", xaxis_title=None)
+        st.plotly_chart(_roll_fig, width="stretch")
+
+        # ── Panel 4: Confidence calibration ──────────────────────────────────
+        if "conf" in _bt.columns:
+            st.markdown("**Confidence Calibration**")
+            _bins = [0, 0.35, 0.45, 0.55, 0.65, 0.75, 1.01]
+            _bin_labels = ["<35%", "35-45%", "45-55%", "55-65%", "65-75%", ">75%"]
+            _bt["conf_bin"] = pd.cut(_bt["conf"], bins=_bins, labels=_bin_labels, right=False)
+            _cal = (
+                _bt.groupby("conf_bin", observed=True)["correct"]
+                .agg(accuracy=lambda x: x.mean() * 100, count="count")
+                .reset_index()
+            )
+            _cal_fig = go.Figure()
+            _cal_fig.add_trace(go.Bar(
+                x=_cal["conf_bin"].astype(str), y=_cal["accuracy"],
+                name="Actual Accuracy", marker_color="#00BFFF",
+                text=_cal["count"].apply(lambda n: f"n={n}"),
+                textposition="outside",
+            ))
+            _cal_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+            _dark(_cal_fig, height=280)
+            _cal_fig.update_layout(xaxis_title="Model Confidence Bin", yaxis_title="Actual Accuracy (%)")
+            st.plotly_chart(_cal_fig, width="stretch")
+
+        # ── Panel 5: Monthly performance bar chart ────────────────────────────
+        st.markdown("**Monthly Accuracy**")
+        _bt["month"] = _bt.index.to_period("M")
+        _mon = (
+            _bt.groupby("month")["correct"]
+            .agg(accuracy=lambda x: x.mean() * 100, count="count")
+            .reset_index()
+        )
+        _mon["month"] = _mon["month"].astype(str)
+        _mon_colors   = ["#00CC88" if a >= 50 else "#FF4B4B" for a in _mon["accuracy"]]
+        _mon_fig = go.Figure(go.Bar(
+            x=_mon["month"], y=_mon["accuracy"],
+            marker_color=_mon_colors,
+            text=_mon["count"].apply(lambda n: f"n={n}"),
+            textposition="outside",
+        ))
+        _mon_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+        _dark(_mon_fig, height=300)
+        _mon_fig.update_layout(xaxis_title="Month", yaxis_title="Accuracy (%)")
+        st.plotly_chart(_mon_fig, width="stretch")
+
+        # ── Auto-generated interpretation ─────────────────────────────────────
+        _best_mon  = _mon.loc[_mon["accuracy"].idxmax(), "month"]
+        _worst_mon = _mon.loc[_mon["accuracy"].idxmin(), "month"]
+        _green_months = (_mon["accuracy"] >= 50).sum()
+        st.info(
+            f"**Backtest Insight**: Overall accuracy {_acc:.1f}% on {_tot} test predictions. "
+            f"Directional accuracy (UP/DOWN only) is {_dir_acc:.1f}%. "
+            f"{_green_months} of {len(_mon)} months beat the 50% baseline. "
+            f"Best month: {_best_mon} — worst: {_worst_mon}. "
+            + ("Model shows positive edge across most time periods." if _green_months / len(_mon) >= 0.6
+               else "Accuracy is inconsistent — walk-forward validation recommended.")
+        )
