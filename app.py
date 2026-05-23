@@ -379,5 +379,80 @@ fig.update_xaxes(showgrid=False)
 fig.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
 st.plotly_chart(fig, width="stretch")
 
+# ── AI 5-Day Price Projection ─────────────────────────────────────────────────
+if signal:
+    st.divider()
+    st.subheader("AI 5-Day Price Projection")
+
+    _CONTEXT_DAYS = 10
+    _PROJ_DAYS    = 5
+
+    _ctx        = df.tail(_CONTEXT_DAYS)
+    _last_close = float(_ctx["Close"].iloc[-1])
+    _last_dt    = _ctx.index[-1]
+
+    # Direction from signal_int: 2=UP, 1=SIDEWAYS, 0=DOWN
+    _direction   = {2: +1, 1: 0, 0: -1}.get(signal["signal_int"], 0)
+    _conf        = signal.get("confidence_pct", 50) / 100
+    _daily_drift = _direction * atr_val * 0.25 * _conf
+
+    _future_dates = pd.bdate_range(start=_last_dt + pd.Timedelta(days=1), periods=_PROJ_DAYS)
+    _proj         = [_last_close + _daily_drift * i for i in range(1, _PROJ_DAYS + 1)]
+    _upper        = [p + atr_val for p in _proj]
+    _lower        = [p - atr_val for p in _proj]
+
+    _fig_proj = go.Figure()
+
+    # Last 10 days actual price (green solid line)
+    _fig_proj.add_trace(go.Scatter(
+        x=_ctx.index, y=_ctx["Close"],
+        name="Actual Price (10d)",
+        line=dict(color="#00CC88", width=2),
+    ))
+
+    # ATR confidence band (shaded orange fill)
+    _fig_proj.add_trace(go.Scatter(
+        x=list(_future_dates) + list(_future_dates[::-1]),
+        y=_upper + _lower[::-1],
+        fill="toself", fillcolor="rgba(255,165,0,0.15)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name="ATR Confidence Band (±1× ATR)",
+    ))
+
+    # Connector from last actual point to first projected point
+    _fig_proj.add_trace(go.Scatter(
+        x=[_last_dt, _future_dates[0]], y=[_last_close, _proj[0]],
+        mode="lines", line=dict(color="#FFA500", width=1.5, dash="dot"),
+        showlegend=False,
+    ))
+
+    # 5-day projected line (orange dotted)
+    _fig_proj.add_trace(go.Scatter(
+        x=list(_future_dates), y=_proj,
+        name="AI Projection (5d)",
+        line=dict(color="#FFA500", width=2, dash="dot"),
+    ))
+
+    # Vertical divider between actual and projected regions
+    _fig_proj.add_vline(
+        x=str(_last_dt.date()),
+        line=dict(color="rgba(255,255,255,0.25)", width=1, dash="dash"),
+    )
+
+    # "Indicative Only" watermark annotation
+    _fig_proj.add_annotation(
+        text="AI Projection — Indicative Only",
+        xref="paper", yref="paper", x=0.99, y=0.97,
+        showarrow=False, font=dict(color="#FFA500", size=12), align="right",
+    )
+
+    _dark(_fig_proj, height=360)
+    st.plotly_chart(_fig_proj, width="stretch")
+
+    st.caption(
+        "⚠️ This projection is generated from model signals and ATR-based volatility estimates. "
+        "It is indicative only and does not constitute a price forecast or financial advice."
+    )
+
 if not models_ok:
     st.info("👆 Press **Train** in the sidebar to generate the AI signal. First run takes 15–30 min.")
