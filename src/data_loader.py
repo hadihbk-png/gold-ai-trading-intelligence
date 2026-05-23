@@ -115,3 +115,22 @@ def get_train_test_split(df: pd.DataFrame):
     """Strictly time-ordered split.  Last TEST_YEARS year(s) → test set."""
     split = df.index[-1] - pd.DateOffset(years=TEST_YEARS)
     return df[df.index <= split].copy(), df[df.index > split].copy()
+
+
+def get_live_spot_price(api_key: str) -> tuple:
+    """Fetch XAU/USD spot from Twelve Data. Returns (price, source_label).
+    Falls back to (None, 'yfinance (delayed)') on any failure."""
+    if not api_key:
+        return None, "yfinance (delayed)"
+    try:
+        import requests
+        resp = requests.get(
+            "https://api.twelvedata.com/price",
+            params={"symbol": "XAU/USD", "apikey": api_key},
+            timeout=5,
+        )
+        data = resp.json()
+        price = float(data["price"])
+        return price, "Twelve Data (live)"
+    except Exception:
+        return None, "yfinance (delayed)"

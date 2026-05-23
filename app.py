@@ -18,7 +18,7 @@ from src.config import (
     MAX_DRAWDOWN_HALT, MAX_DAILY_LOSS_PCT, FRED_API_KEY,
     BULL_UP_CONF_RELAXED, BULL_REGIME_ENABLED,
 )
-from src.data_loader import download_data, get_train_test_split
+from src.data_loader import download_data, get_train_test_split, get_live_spot_price
 from src.features import add_features
 from src.macro_loader import download_fred, add_macro_features
 from src.regime import get_current_regime, detect_regime, REGIME_LABELS, REGIME_COLORS
@@ -65,6 +65,10 @@ def _load_macro(refresh_key: int, fred_key: str) -> pd.DataFrame:
         return pd.DataFrame()
     os.environ["FRED_API_KEY"] = fred_key
     return download_fred(force_refresh=(refresh_key > 0))
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_live_price(api_key: str) -> tuple:
+    return get_live_spot_price(api_key)
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -231,16 +235,26 @@ st.title("🥇 Gold AI Trader — Dashboard")
 st.caption("⚠️ Personal research only · NOT financial advice · Past performance does not guarantee future results")
 
 # ── KPI row ───────────────────────────────────────────────────────────────────
-cur  = float(df["Close"].iloc[-1])
-prv  = float(df["Close"].iloc[-2])
-chg  = cur - prv
-chgp = chg / prv * 100
+_td_key = st.secrets.get("TWELVE_DATA_API_KEY", os.environ.get("TWELVE_DATA_API_KEY", ""))
+_live_price, _price_source = _load_live_price(_td_key)
+
+last_close = float(df["Close"].iloc[-1])
+prev_close = float(df["Close"].iloc[-2])
+if _live_price is not None:
+    cur  = _live_price
+    chg  = cur - last_close
+    chgp = chg / last_close * 100
+else:
+    cur  = last_close
+    chg  = last_close - prev_close
+    chgp = chg / prev_close * 100
 last_date = df.index[-1].strftime("%Y-%m-%d %H:%M UTC") if hasattr(df.index[-1], "strftime") else str(df.index[-1])
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.metric("Gold Price (GC=F)", f"${cur:,.2f}",
+c1.metric("Gold Price (XAU/USD)", f"${cur:,.2f}",
           f"{chg:+.2f}  ({chgp:+.2f}%)")
+c1.caption(f"📡 {_price_source}")
 
 if signal:
     sig_clr  = signal["signal_color"]
