@@ -308,6 +308,69 @@ if signal and signal.get("proba_vec"):
     elif signal["signal_int"] != 1:
         st.success("✅ All entry filters passed")
 
+# ── Signal Strength Indicator ─────────────────────────────────────────────────
+if signal:
+    _ss_int  = signal["signal_int"]          # 0=DOWN, 1=SIDEWAYS, 2=UP
+    _ss_conf = signal.get("confidence_pct", 0)
+    _ss_lbl  = signal.get("signal_label", "SIDEWAYS")
+
+    # Bar colour by direction
+    if _ss_int == 2:
+        _ss_color = "#00CC88"   # green  — UP / BUY
+    elif _ss_int == 0:
+        _ss_color = "#FF4B4B"   # red    — DOWN / SELL
+    else:
+        _ss_color = "#888888"   # grey   — SIDEWAYS / No Trade
+
+    # Strength label by confidence band
+    if _ss_conf <= 40:
+        _ss_grade = "Weak — Exercise Caution"
+    elif _ss_conf <= 60:
+        _ss_grade = "Moderate — Monitor Closely"
+    elif _ss_conf <= 80:
+        _ss_grade = "Strong — Signal Worth Considering"
+    else:
+        _ss_grade = "Very Strong — High Conviction Signal"
+
+    # Plain-English summary
+    _ss_grade_word = _ss_grade.split("—")[0].strip().lower()
+    if _ss_int == 1:
+        _ss_summary = (
+            f"AI model favours {_ss_lbl} movement with {_ss_grade_word} confidence. "
+            f"No trade recommended at this time."
+        )
+    else:
+        _ss_summary = (
+            f"AI model favours {_ss_lbl} movement with {_ss_grade_word} confidence. "
+            f"Consider reviewing risk parameters before acting."
+        )
+
+    st.divider()
+    st.subheader("Signal Strength")
+    st.markdown(
+        f"""
+        <div style="margin-bottom:6px;font-size:0.85em;color:#aaa;">
+            Confidence &nbsp;·&nbsp;
+            <span style="color:{_ss_color};font-weight:bold;">{_ss_conf:.1f}%</span>
+        </div>
+        <div style="background:#1e2130;border-radius:6px;height:18px;
+                    width:100%;overflow:hidden;">
+            <div style="background:{_ss_color};width:{_ss_conf:.1f}%;
+                        height:100%;border-radius:6px;"></div>
+        </div>
+        <div style="margin-top:8px;font-size:0.95em;
+                    color:{_ss_color};font-weight:600;">{_ss_grade}</div>
+        <div style="margin-top:10px;font-size:0.95em;color:#e0e0e0;">
+            {_ss_summary}
+        </div>
+        <div style="margin-top:10px;font-size:0.78em;color:#888;font-style:italic;">
+            Signal strength reflects model confidence only.
+            It does not guarantee outcome or constitute financial advice.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # ── ATR / VIX row ─────────────────────────────────────────────────────────────
 st.divider()
 m1, m2, m3, m4 = st.columns(4)
