@@ -26,7 +26,7 @@ from src.signals import generate_latest_signal
 from src.train import load_models
 
 st.set_page_config(
-    page_title="Gold AI - Live Validation",
+    page_title="Gold AI Decision Intelligence — Live Validation",
     page_icon="OK",
     layout="wide",
 )

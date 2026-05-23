@@ -17,7 +17,7 @@ from src.wfv_parser import parse_validation_log, latest_validation_log
 from src.benchmarks import benchmark_metrics_table
 
 st.set_page_config(
-    page_title="Gold AI — Historical Performance",
+    page_title="Gold AI Decision Intelligence — Historical Performance",
     page_icon="📈",
     layout="wide",
 )
@@ -50,7 +50,7 @@ st.caption("⚠️ NOT financial advice · Walk-forward validation 2019–2024 �
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — Walk-Forward Validation (6 windows)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("Walk-Forward Validation — Gold AI v1 Baseline")
+st.header("Walk-Forward Validation — Gold AI Decision Intelligence Baseline")
 st.caption("6 independent test windows · Train = prior 4 years · Test = target year · 100 Optuna trials")
 
 log_path = latest_validation_log(PROJECT_ROOT)

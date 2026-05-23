@@ -18,7 +18,7 @@ from src.features import add_features
 from src.macro_loader import add_macro_features
 
 st.set_page_config(
-    page_title="Gold AI — Risk Management",
+    page_title="Gold AI Decision Intelligence — Risk Management",
     page_icon="🛡️",
     layout="wide",
 )

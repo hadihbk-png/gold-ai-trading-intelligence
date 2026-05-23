@@ -1,5 +1,5 @@
 """
-Gold AI Trader Assistant — MVP Dashboard
+Gold AI Decision Intelligence Platform — Dashboard
 Streamlit multi-page app  |  NOT FINANCIAL ADVICE  |  Personal research only
 """
 import os, sys, warnings, time
@@ -29,7 +29,7 @@ from src.benchmarks import run_all_benchmarks
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Gold AI — Dashboard",
+    page_title="Gold AI Decision Intelligence — Dashboard",
     page_icon="🥇",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -72,7 +72,7 @@ def _load_live_price(api_key: str) -> tuple:
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("🥇 Gold AI v1")
+    st.title("🥇 Gold AI Decision Intelligence")
     st.caption("NOT FINANCIAL ADVICE")
     st.divider()
 
@@ -130,7 +130,7 @@ if st.session_state.reg_results is None:
 # ── Training flow ──────────────────────────────────────────────────────────────
 if train_btn:
     train_df, test_df = get_train_test_split(df)
-    with st.status("Training Gold AI v1… (15–30 min first run)", expanded=True) as status:
+    with st.status("Training Gold AI Decision Intelligence… (15–30 min first run)", expanded=True) as status:
         log_box = st.empty()
         msgs: list[str] = []
 
@@ -231,7 +231,7 @@ models_ok   = st.session_state.reg_results is not None
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("🥇 Gold AI Trader — Dashboard")
+st.title("🥇 Gold AI Decision Intelligence — Dashboard")
 st.caption("⚠️ Personal research only · NOT financial advice · Past performance does not guarantee future results")
 
 # ── KPI row ───────────────────────────────────────────────────────────────────
