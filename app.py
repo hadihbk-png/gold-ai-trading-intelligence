@@ -929,15 +929,16 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
         _acc    = _bt["correct"].mean() * 100
         _dir_bt = _bt[_bt["y_true"] != 1]
         _dir_acc = (_dir_bt["y_true"] == _dir_bt["y_pred"]).mean() * 100 if len(_dir_bt) else 0.0
-        _bd1, _bd2, _bd3, _bd4 = st.columns(4)
+        _bd1, _bd2, _bd3 = st.columns(3)
         _bd1.metric("Total Predictions", _tot)
         _bd2.metric("Overall Accuracy", f"{_acc:.1f}%",
                     delta=f"{_acc - 33.3:+.1f} pp vs 33% baseline",
                     delta_color="normal")
         _bd3.metric("Directional Accuracy", f"{_dir_acc:.1f}%",
                     help="UP/DOWN only — excludes SIDEWAYS true labels")
-        _bd4.metric("Test Period",
-                    f"{_bt.index[0].strftime('%b %Y')} – {_bt.index[-1].strftime('%b %Y')}")
+        _bds, _bde = st.columns(2)
+        _bds.metric("Backtest Start", _bt.index[0].strftime("%b %Y"))
+        _bde.metric("Backtest End",   _bt.index[-1].strftime("%b %Y"))
 
         # Class-wise
         _cls_cols = st.columns(3)
