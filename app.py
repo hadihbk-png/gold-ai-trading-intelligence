@@ -74,7 +74,8 @@ def _dark(fig, height=420):
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
          "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status",
-         "wfv_results", "last_retrain_bar_date", "bt_eval_results")
+         "wfv_results", "last_retrain_bar_date", "bt_eval_results",
+         "morning_brief", "ai_explanation")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -340,7 +341,7 @@ if st.session_state.alert_status is None:
 if st.session_state.alert_status == "ready" and signal:
     _alert_conditions = (
         signal["signal_int"] in (0, 2)            # UP or DOWN only
-        and signal.get("confidence_pct", 0) > 60  # above 60% confidence
+        and signal.get("confidence_pct", 0) > 55  # Phase 4A: lowered from 60% to 55%
         and not signal.get("filter_reason")        # No Trade filter NOT active
     )
     if _alert_conditions:
@@ -486,6 +487,119 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4A — Claude AI Morning Brief + Signal Explanation
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Build signal_data dict for Claude API calls ───────────────────────────────
+_anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+
+_signal_data_for_api = None
+if signal:
+    try:
+        from src.explainer import generate_signal_explanation, generate_morning_brief
+        from src.regime import REGIME_LABELS as _REGIME_LABELS_FOR_API
+
+        _rsi_api   = float(df["RSI"].iloc[-1])       if "RSI"         in df.columns else 50.0
+        _macd_api  = float(df["MACD"].iloc[-1])      if "MACD"        in df.columns else 0.0
+        _msig_api  = float(df["MACD_Signal"].iloc[-1]) if "MACD_Signal" in df.columns else 0.0
+        _bbp_api   = float(df["BB_PctB"].iloc[-1])   if "BB_PctB"     in df.columns else 0.5
+        _vix_cols_api = [c for c in df.columns if "VIX" in c.upper() and c.endswith("_Close")]
+        _vix_api   = float(df[_vix_cols_api[0]].iloc[-1]) if _vix_cols_api else 20.0
+        _atr_val_api = float(df["ATR"].iloc[-1]) if "ATR" in df.columns else cur * 0.01
+        _atr_api     = _atr_val_api / cur * 100 if cur else 1.0
+        _prev_cls  = float(df["Close"].iloc[-2]) if len(df) > 1 else cur
+        _chg_api   = (cur - _prev_cls) / _prev_cls * 100 if _prev_cls else 0.0
+        _pv_api    = signal.get("proba_vec") or [0.33, 0.34, 0.33]
+        _ri_int    = (regime_info or {}).get("regime_int", 5)
+        _reg_lbl   = _REGIME_LABELS_FOR_API.get(_ri_int, "Neutral")
+
+        _top_feats_api: list = []
+        for _mn_api in ["XGBoost", "LightGBM", "CatBoost"]:
+            _mc_api = (st.session_state.clf_results or {}).get(_mn_api, {})
+            _fi_api = _mc_api.get("feature_importance")
+            if _fi_api is not None and len(_fi_api) > 0:
+                _top_feats_api = list(_fi_api.head(3).index) if hasattr(_fi_api, "head") else []
+                break
+
+        _signal_data_for_api = {
+            "signal":              signal["signal_label"],
+            "confidence":          (signal.get("confidence_pct") or 50) / 100,
+            "gold_price":          cur,
+            "price_change_pct":    _chg_api,
+            "rsi":                 _rsi_api,
+            "macd":                _macd_api,
+            "macd_signal":         _msig_api,
+            "bb_pctb":             _bbp_api,
+            "atr_pct":             _atr_api,
+            "vix":                 _vix_api,
+            "market_regime":       _reg_lbl,
+            "top_features":        _top_feats_api,
+            "directional_probs": {
+                "UP":       _pv_api[2] if len(_pv_api) > 2 else 0.33,
+                "SIDEWAYS": _pv_api[1] if len(_pv_api) > 1 else 0.34,
+                "DOWN":     _pv_api[0] if len(_pv_api) > 0 else 0.33,
+            },
+            "days_since_last_signal": None,
+            "last_bar_date": (
+                df.index[-1].strftime("%Y-%m-%d")
+                if hasattr(df.index[-1], "strftime") else str(df.index[-1])[:10]
+            ),
+        }
+    except Exception:
+        pass
+
+# ── Caching helpers ───────────────────────────────────────────────────────────
+_today_str = datetime.now(_UAE_TZ).strftime("%Y-%m-%d")
+_sig_key   = (
+    f"{signal['signal_label']}_{signal.get('confidence_pct', 0):.0f}_{_today_str}"
+    if signal else _today_str
+)
+
+# ── 🌅 Morning Brief ──────────────────────────────────────────────────────────
+with st.expander("🌅 Morning Brief", expanded=True):
+    if not _anthropic_key:
+        st.info(
+            "AI Explanation: configure `ANTHROPIC_API_KEY` in secrets to enable. "
+            "Add it to `.streamlit/secrets.toml` or Streamlit Cloud secrets."
+        )
+    elif _signal_data_for_api is None:
+        st.info("Morning Brief will appear here once a model is trained and a signal is generated.")
+    else:
+        # Check cache: regenerate if day changed
+        _cached_brief = st.session_state.morning_brief
+        _brief_stale  = (
+            _cached_brief is None
+            or _cached_brief.get("date") != _today_str
+        )
+
+        _brief_cols = st.columns([4, 1])
+        if _brief_cols[1].button("🔄 Regenerate Brief", key="regen_brief_btn"):
+            st.session_state.morning_brief = None
+            _brief_stale = True
+
+        if _brief_stale:
+            with st.spinner("Generating morning brief with Claude AI…"):
+                _brief_txt = generate_morning_brief(
+                    _signal_data_for_api, _today_str, _anthropic_key
+                )
+                if _brief_txt:
+                    st.session_state.morning_brief = {
+                        "content": _brief_txt,
+                        "date":    _today_str,
+                        "sig_key": _sig_key,
+                    }
+
+        _cached_brief = st.session_state.morning_brief
+        if _cached_brief and _cached_brief.get("content"):
+            _brief_cols[0].caption(
+                f"Generated at {datetime.now(_UAE_TZ).strftime('%H:%M')} UAE  ·  "
+                f"Powered by Claude AI — Not financial advice"
+            )
+            st.markdown(_cached_brief["content"])
+        elif _anthropic_key:
+            st.warning("Brief generation failed — check your ANTHROPIC_API_KEY and connectivity.")
+
 # ── Probability breakdown ─────────────────────────────────────────────────────
 if signal and signal.get("proba_vec"):
     pv = signal["proba_vec"]
@@ -563,6 +677,45 @@ if signal:
         """,
         unsafe_allow_html=True,
     )
+
+# ── 🧠 AI Signal Explanation ──────────────────────────────────────────────────
+if signal and _signal_data_for_api:
+    with st.expander("🧠 AI Signal Explanation", expanded=False):
+        if not _anthropic_key:
+            st.info(
+                "AI Explanation: configure `ANTHROPIC_API_KEY` in secrets to enable."
+            )
+        else:
+            # Cache by signal+date — regenerate when signal changes or day rolls
+            _cached_expl = st.session_state.ai_explanation
+            _expl_stale  = (
+                _cached_expl is None
+                or _cached_expl.get("sig_key") != _sig_key
+            )
+
+            if _expl_stale:
+                with st.spinner("Generating signal explanation with Claude AI…"):
+                    _expl_txt = generate_signal_explanation(
+                        _signal_data_for_api, _anthropic_key
+                    )
+                    if _expl_txt:
+                        st.session_state.ai_explanation = {
+                            "content": _expl_txt,
+                            "sig_key": _sig_key,
+                            "date":    _today_str,
+                        }
+
+            _cached_expl = st.session_state.ai_explanation
+            if _cached_expl and _cached_expl.get("content"):
+                st.markdown(_cached_expl["content"])
+                st.caption(
+                    "Powered by Claude AI — Not financial advice · "
+                    "Each explanation call costs approximately $0.002"
+                )
+            elif _anthropic_key:
+                st.warning(
+                    "Explanation generation failed — check ANTHROPIC_API_KEY and connectivity."
+                )
 
 # ── ATR / VIX row ─────────────────────────────────────────────────────────────
 st.divider()
@@ -730,6 +883,29 @@ with st.expander("📊 Feature Importance (Top 15)", expanded=False):
                 break
 
         _feat_cols = st.session_state.feature_cols or []
+        # Phase 4A: ensemble model count (tree base + LSTM if available)
+        _lstm_active = (
+            st.session_state.stack_clf is not None
+            and getattr(st.session_state.stack_clf, "_augmented_meta_clf", None) is not None
+        )
+        _lstm_pred_obj = (st.session_state.clf_results or {}).get("Stacking", {}).get("lstm_predictor")
+        _lstm_files_ok = (
+            _lstm_pred_obj is not None
+            and getattr(_lstm_pred_obj, "available", False)
+        )
+        _n_base_clf = 4 if (_lstm_active and _lstm_files_ok) else 3
+        _ensemble_label = (
+            f"{_n_base_clf} base classifiers (XGBoost · LightGBM · CatBoost · LSTM) "
+            f"+ L2 meta-classifier = {_n_base_clf + 3} model ensemble"
+            if _lstm_active and _lstm_files_ok
+            else "3 base classifiers (XGBoost · LightGBM · CatBoost) + L2 meta-classifier"
+        )
+        st.caption(f"**Ensemble:** {_ensemble_label}")
+        if _lstm_active and _lstm_files_ok:
+            st.success("LSTM sequence model: active ✓ (4th base model — 20-bar temporal sequences)")
+        elif models_ok:
+            st.info("LSTM sequence model: unavailable (retrain with TensorFlow installed to activate)")
+
         if _fi_data is not None and _feat_cols:
             _fi_df = (
                 pd.DataFrame({"Feature": _feat_cols[:len(_fi_data)], "Importance": _fi_data})

@@ -11,3 +11,5 @@ plotly>=5.20.0
 scipy>=1.12.0
 fredapi>=0.5.1
 imbalanced-learn>=0.12.0
+tensorflow>=2.13.0
+anthropic>=0.40.0

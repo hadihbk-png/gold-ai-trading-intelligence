@@ -331,6 +331,12 @@ def train_all_models(
     classes   = np.unique(ytr_c)
     weights   = compute_class_weight("balanced", classes=classes, y=ytr_c)
     cw_dict   = dict(zip(classes.astype(int), weights))
+
+    # Phase 4A: increase SIDEWAYS (class=1) misclassification penalty by 30%
+    # to discourage the model from defaulting to the most-frequent neutral class.
+    if 1 in cw_dict:
+        cw_dict[1] = cw_dict[1] * 1.30
+
     sw_train  = np.array([cw_dict[y] for y in ytr_c])
     cb_cw_list = [float(cw_dict.get(c, 1.0)) for c in range(3)]  # [w_DOWN, w_SIDE, w_UP]
 
@@ -471,6 +477,65 @@ def train_all_models(
         "xgb_reg": xgb_reg_p, "lgb_reg": lgb_reg_p, "cb_reg": cb_reg_p,
         "xgb_clf": xgb_clf_p, "lgb_clf": lgb_clf_p, "cb_clf": cb_clf_p,
     }
+
+    # ── Phase 4A: LSTM base model integration ─────────────────────────────────
+    # Train LSTM after tree models, generate OOF probabilities, and augment the
+    # L2 meta-learner input from 9 (3×tree×3-class) to 12 (+LSTM×3-class).
+    # All failures are caught — tree-only ensemble always remains as fallback.
+    try:
+        log("Training LSTM base model (Phase 4A)…")
+        from src.lstm_model import train_lstm, LSTMPredictor
+        from sklearn.model_selection import TimeSeriesSplit as _TSS
+
+        _lstm_obj, _lstm_scaler, _lstm_oof, _lstm_oof_mask = train_lstm(
+            Xtr_c, ytr_c,
+            fast=fast_retrain,
+            cv_folds=_stk_folds,
+            progress_cb=log,
+        )
+
+        # Rebuild the same oof_mask used inside StackingClassifier.fit() to
+        # align tree OOF rows (already filtered) with LSTM OOF rows.
+        _tscv_align = _TSS(n_splits=_stk_folds)
+        _tree_mask  = np.zeros(len(Xtr_c), dtype=bool)
+        for _, _vi in _tscv_align.split(Xtr_c):
+            _tree_mask[_vi] = True
+        _valid_idx = np.where(_tree_mask)[0]  # original row indices with valid OOF
+
+        # LSTM OOF for those same indices
+        _lstm_valid = _lstm_oof[_valid_idx]                          # (n_valid, 3)
+        _both_ok    = ~np.isnan(_lstm_valid).any(axis=1)             # rows valid in both
+
+        if _both_ok.sum() > 30:
+            # Augmented feature matrix: tree OOF (9 cols) + LSTM OOF (3 cols) = 12
+            _tree_oof  = stack_clf._oof_proba                        # (n_valid, 9)
+            _aug_oof   = np.hstack([_tree_oof[_both_ok], _lstm_valid[_both_ok]])
+            _aug_y     = stack_clf._oof_y[_both_ok]
+
+            _aug_meta = xgb.XGBClassifier(
+                n_estimators=100, max_depth=3, learning_rate=0.05,
+                random_state=RANDOM_STATE, verbosity=0,
+            )
+            _aug_meta.fit(_aug_oof, _aug_y)
+
+            # Persist LSTM model and scaler to separate files
+            _lstm_path   = os.path.join(MODELS_DIR, "lstm_model.keras")
+            _scaler_path = os.path.join(MODELS_DIR, "lstm_scaler.pkl")
+            _lstm_obj.save(_lstm_path, _scaler_path)
+
+            # Attach augmented meta-clf to stack_clf (XGB is pickle-safe)
+            stack_clf._augmented_meta_clf = _aug_meta
+
+            # Store lazy-loading predictor in clf_results for inference
+            _lstm_pred = LSTMPredictor(_lstm_path, _scaler_path)
+            clf_results["Stacking"]["lstm_predictor"] = _lstm_pred
+
+            log(f"LSTM integrated: augmented meta-clf trained on {_both_ok.sum()} OOF samples.")
+        else:
+            log(f"LSTM OOF insufficient ({_both_ok.sum()} valid rows) — skipping augmentation.")
+
+    except Exception as _lstm_exc:
+        log(f"LSTM training skipped (tree ensemble unchanged): {_lstm_exc}")
 
     log("Training complete.")
     return reg_results, clf_results, feature_cols, stack_reg, stack_clf

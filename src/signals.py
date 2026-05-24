@@ -13,6 +13,50 @@ SIGNAL_LABELS = {0: "DOWN",     1: "SIDEWAYS", 2: "UP"}
 SIGNAL_COLORS = {0: "#FF4B4B",  1: "#888888",  2: "#00CC88"}
 SIGNAL_EMOJI  = {0: "🔴",       1: "⚪",        2: "🟢"}
 
+# ── Phase 4A: Directional override thresholds ─────────────────────────────────
+_SIDEWAYS_GAP_PP   = 8.0   # UP–DOWN probability gap (pp) that forces directional
+_SIDEWAYS_CONF_MAX = 55.0  # max confidence to remain SIDEWAYS
+_SIDEWAYS_ATR_MAX  = 0.8   # max ATR/Price% to remain SIDEWAYS
+
+
+def _apply_directional_override(
+    signal_int: int,
+    proba_vec,
+    confidence: float,
+    atr_pct: float,
+) -> tuple[int, float]:
+    """
+    Phase 4A Enhancement 1 — fix chronic SIDEWAYS bias.
+
+    Override SIDEWAYS → UP or DOWN when the model lacks genuine conviction for
+    neutrality (gap too large, confidence too high, or volatility too high for
+    a truly sideways day).
+
+    Rules applied only when signal_int == 1 (SIDEWAYS):
+      1. Forced directional: |P(UP) - P(DOWN)| > 8pp → use higher direction
+      2. SIDEWAYS reservation: only stay SIDEWAYS when ALL hold:
+           gap < 8pp AND confidence < 55% AND ATR/Price < 0.8%
+    """
+    if signal_int != 1 or proba_vec is None:
+        return signal_int, confidence
+
+    p_down = float(proba_vec[0]) * 100
+    p_up   = float(proba_vec[2]) * 100
+    gap    = abs(p_up - p_down)
+
+    stay_sideways = (
+        gap < _SIDEWAYS_GAP_PP
+        and confidence < _SIDEWAYS_CONF_MAX
+        and atr_pct < _SIDEWAYS_ATR_MAX
+    )
+    if stay_sideways:
+        return signal_int, confidence
+
+    # Force directional: use the higher-probability direction
+    new_sig = 2 if p_up >= p_down else 0
+    new_conf = float(proba_vec[new_sig]) * 100
+    return new_sig, new_conf
+
 
 def generate_latest_signal(
     df,
@@ -91,6 +135,31 @@ def generate_latest_signal(
                 raw_signal = 1
 
             confidence = float(proba_vec[raw_signal] * 100)
+
+            # ── Phase 4A: LSTM-augmented meta-clf (if trained and files present) ──
+            _aug_meta  = getattr(stack_clf, "_augmented_meta_clf", None)
+            _lstm_pred = (clf_results or {}).get("Stacking", {}).get("lstm_predictor")
+            if _aug_meta is not None and _lstm_pred is not None:
+                try:
+                    _X_recent   = available[feature_cols].values        # (n, n_feat)
+                    _lstm_proba = _lstm_pred.predict_proba_from_recent(_X_recent)
+                    if _lstm_proba is not None:
+                        _l1_proba  = stack_clf._l1_proba(X)             # (1, 9)
+                        _aug_input = np.hstack([_l1_proba, _lstm_proba])  # (1, 12)
+                        _aug_proba = _aug_meta.predict_proba(_aug_input)[0]  # (3,)
+                        proba_vec  = _aug_proba
+                        p_up   = float(proba_vec[2])
+                        p_down = float(proba_vec[0])
+                        if p_up > t_up and p_up >= p_down:
+                            raw_signal = 2
+                        elif p_down > t_down and p_down > p_up:
+                            raw_signal = 0
+                        else:
+                            raw_signal = 1
+                        confidence = float(proba_vec[raw_signal] * 100)
+                except Exception:
+                    pass  # fall back to tree-only probabilities
+
         except Exception:
             stack_clf = None
 
@@ -119,6 +188,14 @@ def generate_latest_signal(
     current_price = float(df["Close"].iloc[-1])
     atr_val       = (float(df["ATR"].iloc[-1])
                      if "ATR" in df.columns else current_price * 0.01)
+
+    # Phase 4A: apply directional bias correction now that ATR/Price is known
+    if proba_vec is not None:
+        _atr_pct = atr_val / current_price * 100 if current_price else 1.0
+        raw_signal, confidence = _apply_directional_override(
+            raw_signal, proba_vec, confidence, _atr_pct
+        )
+
     conf_frac     = confidence / 100 if confidence is not None else None
 
     trade_ok, filter_reason = check_no_trade(

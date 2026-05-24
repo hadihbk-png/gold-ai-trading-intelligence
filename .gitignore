@@ -8,3 +8,5 @@ data/*.pkl
 data/risk_alert_state.json
 data/last_alert_date.txt
 data/model_retrain_log.json
+models/lstm_model.keras
+models/lstm_scaler.pkl
