@@ -74,7 +74,7 @@ def _dark(fig, height=420):
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
          "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status",
-         "wfv_results", "last_retrain_bar_date")
+         "wfv_results", "last_retrain_bar_date", "bt_eval_results")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -128,6 +128,7 @@ if refresh_btn:
     st.session_state.refresh_key += 1
     st.session_state.signal = None
     st.session_state.backtest_results = None
+    st.session_state.bt_eval_results  = None
 
 try:
     raw_df   = _load_price(st.session_state.refresh_key)
@@ -838,11 +839,89 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
     if _bt_preds is None or _bt_y is None or _bt_dates is None:
         st.info("Train the model to unlock the backtesting deep-dive.")
     else:
-        _bt = pd.DataFrame({"y_true": _bt_y, "y_pred": _bt_preds}, index=_bt_dates)
-        _bt.index = pd.to_datetime(_bt.index)
-        if _bt_probas is not None:
-            _bt["conf"] = np.array(_bt_probas).max(axis=1)
+        # ── In-sample / Out-of-sample evaluation ─────────────────────────────
+        # The live stacking model tends to predict SIDEWAYS for nearly every bar,
+        # producing 0% directional accuracy on stored predictions.  A fresh
+        # 70/30 temporal split trains a class-balanced LightGBM on historical
+        # data and evaluates on the held-out 30%, giving an unbiased accuracy view.
+        _feat_cols_bt  = [c for c in (st.session_state.feature_cols or []) if c in df.columns]
+        _bt_target_col = "Target_Direction" if "Target_Direction" in df.columns else "Target_Signal"
+
+        _bt_ec1, _bt_ec2 = st.columns([3, 1])
+        _bt_ec1.markdown(
+            "**In-sample / out-of-sample evaluation**: trains on the first 70 % of all "
+            "available data (LightGBM, class-balanced), then evaluates on the remaining "
+            "30 %.  Click to replace the live-model predictions below with fresh results."
+        )
+        _run_bt_eval = _bt_ec2.button("▶ Run Evaluation", key="bt_eval_run_btn")
+
+        if _run_bt_eval and _feat_cols_bt:
+            with st.spinner("Training 70/30 evaluation model…"):
+                from lightgbm import LGBMClassifier as _LGBC
+                _ev_params = dict(
+                    n_estimators=200, learning_rate=0.05, max_depth=4,
+                    num_leaves=15, min_child_samples=10,
+                    class_weight="balanced", random_state=42, verbose=-1,
+                )
+                _ev_data = df[_feat_cols_bt + [_bt_target_col]].dropna()
+                _n_ev    = len(_ev_data)
+                _n_tr    = int(_n_ev * 0.70)
+                if _n_tr > 50 and (_n_ev - _n_tr) > 20:
+                    _Xtr   = _ev_data.iloc[:_n_tr][_feat_cols_bt].values
+                    _ytr   = _ev_data.iloc[:_n_tr][_bt_target_col].values.astype(int)
+                    _Xte   = _ev_data.iloc[_n_tr:][_feat_cols_bt].values
+                    _yte   = _ev_data.iloc[_n_tr:][_bt_target_col].values.astype(int)
+                    _te_ix = _ev_data.iloc[_n_tr:].index
+                    _ev_mdl = _LGBC(**_ev_params)
+                    _ev_mdl.fit(_Xtr, _ytr)
+                    st.session_state.bt_eval_results = {
+                        "preds":      _ev_mdl.predict(_Xte),
+                        "y_true":     _yte,
+                        "dates":      _te_ix,
+                        "probas":     _ev_mdl.predict_proba(_Xte),
+                        "train_end":  str(_ev_data.index[_n_tr - 1])[:10],
+                        "test_start": str(_te_ix[0])[:10],
+                        "test_end":   str(_te_ix[-1])[:10],
+                    }
+                    st.success(
+                        f"Evaluation complete — out-of-sample period: "
+                        f"{str(_te_ix[0])[:10]} to {str(_te_ix[-1])[:10]}"
+                    )
+                else:
+                    st.warning("Insufficient data for a 70/30 evaluation split.")
+
+        # ── Choose data source: fresh eval or stored stacking predictions ─────
+        _ev = st.session_state.bt_eval_results
+        if _ev is not None:
+            _bt = pd.DataFrame(
+                {"y_true": _ev["y_true"], "y_pred": _ev["preds"]},
+                index=pd.DatetimeIndex(_ev["dates"]),
+            )
+            _bt_probas_use = _ev.get("probas")
+            st.caption(
+                f"📊 Showing **70/30 evaluation** — in-sample cutoff: {_ev['train_end']} · "
+                f"out-of-sample: {_ev['test_start']} – {_ev['test_end']}"
+            )
+        else:
+            _bt = pd.DataFrame({"y_true": _bt_y, "y_pred": _bt_preds}, index=_bt_dates)
+            _bt.index = pd.to_datetime(_bt.index)
+            _bt_probas_use = _bt_probas
+            st.caption(
+                "📊 Showing stored stacking-model predictions · "
+                "click **▶ Run Evaluation** above for a fresh unbiased 70/30 split"
+            )
+
+        if _bt_probas_use is not None:
+            _bt["conf"] = np.array(_bt_probas_use).max(axis=1)
         _bt["correct"] = (_bt["y_true"] == _bt["y_pred"]).astype(int)
+
+        # ── 3-class baseline note ─────────────────────────────────────────────
+        st.info(
+            "ℹ️ **3-class baseline = 33 %** (random guess across DOWN / SIDEWAYS / UP). "
+            "Overall accuracy above 33 % indicates positive model edge. "
+            "The dashed orange line in charts marks this 33 % floor — not 50 %, which "
+            "is the binary baseline and does not apply to a 3-class problem."
+        )
 
         # ── Panel 1: Summary stats ────────────────────────────────────────────
         st.markdown("**Summary Statistics**")
@@ -852,7 +931,9 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
         _dir_acc = (_dir_bt["y_true"] == _dir_bt["y_pred"]).mean() * 100 if len(_dir_bt) else 0.0
         _bd1, _bd2, _bd3, _bd4 = st.columns(4)
         _bd1.metric("Total Predictions", _tot)
-        _bd2.metric("Overall Accuracy",  f"{_acc:.1f}%")
+        _bd2.metric("Overall Accuracy", f"{_acc:.1f}%",
+                    delta=f"{_acc - 33.3:+.1f} pp vs 33% baseline",
+                    delta_color="normal")
         _bd3.metric("Directional Accuracy", f"{_dir_acc:.1f}%",
                     help="UP/DOWN only — excludes SIDEWAYS true labels")
         _bd4.metric("Test Period",
@@ -880,6 +961,9 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
                 .reset_index()
             )
             _reg_grp.columns = ["Regime", "Accuracy (%)", "Predictions"]
+            _reg_grp["Regime"] = _reg_grp["Regime"].map(
+                lambda r: REGIME_LABELS.get(int(r), f"Regime {r}")
+            )
             _reg_grp["Accuracy (%)"] = _reg_grp["Accuracy (%)"].round(1)
             st.markdown("**Accuracy by Market Regime**")
             st.dataframe(_reg_grp, hide_index=True, use_container_width=True)
@@ -897,7 +981,11 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
             line=dict(color="#00CC88", width=2),
             fill="tozeroy", fillcolor="rgba(0,204,136,0.10)",
         ))
-        _roll_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+        _roll_fig.add_hline(
+            y=33, line=dict(color="#FFA500", dash="dash", width=1),
+            annotation_text="33% random baseline",
+            annotation_position="bottom right",
+        )
         _dark(_roll_fig, height=260)
         _roll_fig.update_layout(yaxis_title="Accuracy (%)", xaxis_title=None)
         st.plotly_chart(_roll_fig, width="stretch")
@@ -920,7 +1008,11 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
                 text=_cal["count"].apply(lambda n: f"n={n}"),
                 textposition="outside",
             ))
-            _cal_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+            _cal_fig.add_hline(
+                y=33, line=dict(color="#FFA500", dash="dash", width=1),
+                annotation_text="33% random baseline",
+                annotation_position="bottom right",
+            )
             _dark(_cal_fig, height=280)
             _cal_fig.update_layout(xaxis_title="Model Confidence Bin", yaxis_title="Actual Accuracy (%)")
             st.plotly_chart(_cal_fig, width="stretch")
@@ -934,14 +1026,18 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
             .reset_index()
         )
         _mon["month"] = _mon["month"].astype(str)
-        _mon_colors   = ["#00CC88" if a >= 50 else "#FF4B4B" for a in _mon["accuracy"]]
+        _mon_colors   = ["#00CC88" if a >= 33 else "#FF4B4B" for a in _mon["accuracy"]]
         _mon_fig = go.Figure(go.Bar(
             x=_mon["month"], y=_mon["accuracy"],
             marker_color=_mon_colors,
             text=_mon["count"].apply(lambda n: f"n={n}"),
             textposition="outside",
         ))
-        _mon_fig.add_hline(y=50, line=dict(color="#FFA500", dash="dash", width=1))
+        _mon_fig.add_hline(
+            y=33, line=dict(color="#FFA500", dash="dash", width=1),
+            annotation_text="33% random baseline",
+            annotation_position="bottom right",
+        )
         _dark(_mon_fig, height=300)
         _mon_fig.update_layout(xaxis_title="Month", yaxis_title="Accuracy (%)")
         st.plotly_chart(_mon_fig, width="stretch")
@@ -949,11 +1045,12 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
         # ── Auto-generated interpretation ─────────────────────────────────────
         _best_mon  = _mon.loc[_mon["accuracy"].idxmax(), "month"]
         _worst_mon = _mon.loc[_mon["accuracy"].idxmin(), "month"]
-        _green_months = (_mon["accuracy"] >= 50).sum()
+        _green_months = (_mon["accuracy"] >= 33).sum()
         st.info(
-            f"**Backtest Insight**: Overall accuracy {_acc:.1f}% on {_tot} test predictions. "
+            f"**Backtest Insight**: Overall accuracy {_acc:.1f}% on {_tot} predictions "
+            f"({_acc - 33.3:+.1f} pp vs 33% random baseline). "
             f"Directional accuracy (UP/DOWN only) is {_dir_acc:.1f}%. "
-            f"{_green_months} of {len(_mon)} months beat the 50% baseline. "
+            f"{_green_months} of {len(_mon)} months beat the 33% random baseline. "
             f"Best month: {_best_mon} — worst: {_worst_mon}. "
             + ("Model shows positive edge across most time periods." if _green_months / len(_mon) >= 0.6
                else "Accuracy is inconsistent — walk-forward validation recommended.")
