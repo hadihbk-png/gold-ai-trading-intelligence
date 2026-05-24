@@ -268,6 +268,7 @@ def train_all_models(
     n_trials: int = N_TRIALS,
     progress_callback=None,
     pretrained_hyperparams: dict | None = None,
+    fast_retrain: bool = False,
 ):
     """
     Full training pipeline including Optuna tuning and stacking ensemble.
@@ -277,9 +278,16 @@ def train_all_models(
     pretrained_hyperparams : optional dict with keys
         xgb_reg, lgb_reg, cb_reg, xgb_clf, lgb_clf, cb_clf.
         When provided, all six Optuna studies are skipped and the supplied
-        params are used directly.  Used in rolling walk-forward validation
-        to reuse hyperparameters tuned on the first window, keeping
-        subsequent windows fast without changing any model logic.
+        params are used directly.
+    fast_retrain : bool
+        When True (used with pretrained_hyperparams), applies four speed
+        optimisations for the auto-retrain path on Streamlit Cloud:
+          1. Caps LightGBM n_estimators at 100 (Optuna may tune to 200+).
+          2. Reduces stacking OOF folds from 5 → 3.
+          3. Reduces calibration CV folds from 3 → 2.
+          4. Feature engineering results are cached upstream by Streamlit;
+             no re-computation occurs on unchanged data.
+        The Optuna full-Train path is completely unaffected.
 
     Returns
     -------
@@ -332,6 +340,20 @@ def train_all_models(
         xgb_clf_p = pretrained_hyperparams.get("xgb_clf", {})
         lgb_clf_p = pretrained_hyperparams.get("lgb_clf", {})
         cb_clf_p  = pretrained_hyperparams.get("cb_clf",  {})
+
+        # ── Fast-retrain optimisations (Optuna path left unchanged) ───────────
+        if fast_retrain:
+            # 1. Cap LightGBM n_estimators at 100 — Optuna may have set 200+.
+            #    Equivalent effect to early stopping: fewer trees = faster fit
+            #    with minimal accuracy loss since the model is already warm-started
+            #    from tuned hyperparams. XGB and CB are typically already low.
+            _FAST_MAX_EST = 100
+            lgb_reg_p = {**lgb_reg_p,
+                         "n_estimators": min(lgb_reg_p.get("n_estimators", 200), _FAST_MAX_EST)}
+            lgb_clf_p = {**lgb_clf_p,
+                         "n_estimators": min(lgb_clf_p.get("n_estimators", 200), _FAST_MAX_EST)}
+            log(f"Fast-retrain: LGB estimators capped at {_FAST_MAX_EST} "
+                f"(reg {lgb_reg_p['n_estimators']}, clf {lgb_clf_p['n_estimators']})")
     else:
         log("Optuna tuning – XGBoost regression…")
         xgb_reg_p  = _tune_xgb_reg(Xtr_r, ytr_r, n_trials)
@@ -363,8 +385,14 @@ def train_all_models(
     )
 
     # ── Stacking ensembles ────────────────────────────────────────────────────
+    # 2. Reduce OOF folds 5→3 and 3. calibration CV folds 3→2 for fast retrain
+    _stk_folds = 3 if fast_retrain else STACKING_CV_FOLDS
+    _cal_folds  = 2 if fast_retrain else CALIBRATION_CV_FOLDS
+    if fast_retrain:
+        log(f"Fast-retrain: stacking OOF folds={_stk_folds}, cal_cv={_cal_folds}")
+
     log("Building regression stacking ensemble (OOF)…")
-    stack_reg = StackingRegressor()
+    stack_reg = StackingRegressor(cv_folds=_stk_folds)
     stack_reg.fit(
         Xtr_r, ytr_r,
         model_factories={
@@ -388,7 +416,7 @@ def train_all_models(
     }
 
     log("Building calibrated classification stacking ensemble (OOF, class-balanced)…")
-    stack_clf = StackingClassifier()
+    stack_clf = StackingClassifier(cv_folds=_stk_folds, cal_cv=_cal_folds)
     stack_clf.fit(
         Xtr_c, ytr_c,
         model_factories={

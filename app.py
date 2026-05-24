@@ -237,6 +237,7 @@ if (auto_retrain_btn or _new_bar) and _hp_available:
                 train_df, test_df,
                 n_trials=N_TRIALS,
                 pretrained_hyperparams=_pretrained_hp,
+                fast_retrain=True,
                 progress_callback=_ar_log,
             )
             _ar_log("Running backtest…")
