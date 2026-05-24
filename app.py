@@ -74,7 +74,7 @@ def _dark(fig, height=420):
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
          "signal", "regime_info", "refresh_key", "alert_status", "risk_alert_status",
-         "wfv_results")
+         "wfv_results", "last_retrain_bar_date")
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
@@ -143,6 +143,8 @@ except Exception as exc:
     st.stop()
 
 df = st.session_state.df
+_cur_bar_date = (df.index[-1].strftime("%Y-%m-%d")
+                 if hasattr(df.index[-1], "strftime") else str(df.index[-1])[:10])
 
 # ── Auto-load saved models ─────────────────────────────────────────────────────
 if st.session_state.reg_results is None:
@@ -153,6 +155,10 @@ if st.session_state.reg_results is None:
         st.session_state.feature_cols = feat
         st.session_state.stack_reg    = sr
         st.session_state.stack_clf    = sc
+    # On cold start, record the current bar date so auto-retrain does NOT fire
+    # until a genuinely new bar arrives within this session.
+    if st.session_state.last_retrain_bar_date is None:
+        st.session_state.last_retrain_bar_date = _cur_bar_date
 
 # ── Training flow ──────────────────────────────────────────────────────────────
 if train_btn:
@@ -187,13 +193,14 @@ if train_btn:
             _log("Saving models…")
             save_models(reg_r, clf_r, feat, sr, sc)
 
-            st.session_state.reg_results      = reg_r
-            st.session_state.clf_results      = clf_r
-            st.session_state.feature_cols     = feat
-            st.session_state.stack_reg        = sr
-            st.session_state.stack_clf        = sc
-            st.session_state.backtest_results = (eq, bh, trades_df, bt_m)
-            st.session_state.benchmark_results = bm
+            st.session_state.reg_results           = reg_r
+            st.session_state.clf_results           = clf_r
+            st.session_state.feature_cols          = feat
+            st.session_state.stack_reg             = sr
+            st.session_state.stack_clf             = sc
+            st.session_state.backtest_results      = (eq, bh, trades_df, bt_m)
+            st.session_state.benchmark_results     = bm
+            st.session_state.last_retrain_bar_date = _cur_bar_date
 
             _log("Generating signal…")
             ri = get_current_regime(df)
@@ -211,11 +218,15 @@ if train_btn:
             st.error(traceback.format_exc())
 
 # ── Auto-Retrain (3C) ─────────────────────────────────────────────────────────
-_retrain_log    = _read_retrain_log()
-_cur_bar_date   = (df.index[-1].strftime("%Y-%m-%d")
-                   if hasattr(df.index[-1], "strftime") else str(df.index[-1])[:10])
+# _cur_bar_date is computed once above, right after df is available.
+# session_state.last_retrain_bar_date is the primary guard — it is set to the
+# current bar date on every cold start (fresh pkl load), so a new session never
+# triggers auto-retrain. Auto-retrain fires only when the bar date advances
+# within an already-running session.
 _models_trained = st.session_state.reg_results is not None
-_new_bar        = _models_trained and _retrain_log["last_bar_date"] != _cur_bar_date
+_new_bar        = (_models_trained
+                   and st.session_state.last_retrain_bar_date is not None
+                   and st.session_state.last_retrain_bar_date != _cur_bar_date)
 _hp_available   = (_models_trained
                    and st.session_state.clf_results is not None
                    and "_hyperparams" in st.session_state.clf_results)
@@ -254,6 +265,7 @@ if (auto_retrain_btn or _new_bar) and _hp_available:
             _ar_log("Saving models…")
             save_models(reg_r, clf_r, feat, sr, sc)
             _write_retrain_log(_cur_bar_date)
+            st.session_state.last_retrain_bar_date = _cur_bar_date
 
             st.session_state.reg_results      = reg_r
             st.session_state.clf_results      = clf_r

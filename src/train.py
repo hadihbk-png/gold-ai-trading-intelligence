@@ -20,7 +20,10 @@ import xgboost as xgb
 import lightgbm as lgb
 import catboost as cb
 
-from src.config import MODELS_DIR, N_TRIALS, RANDOM_STATE
+from src.config import (
+    MODELS_DIR, N_TRIALS, RANDOM_STATE,
+    STACKING_CV_FOLDS, CALIBRATION_CV_FOLDS,
+)
 from src.features import get_feature_columns
 from src.ensemble import (
     StackingRegressor, StackingClassifier,
@@ -329,7 +332,7 @@ def train_all_models(
     weights   = compute_class_weight("balanced", classes=classes, y=ytr_c)
     cw_dict   = dict(zip(classes.astype(int), weights))
     sw_train  = np.array([cw_dict[y] for y in ytr_c])
-    cb_cw_list = [cw_dict.get(c, 1.0) for c in range(3)]  # [w_DOWN, w_SIDE, w_UP]
+    cb_cw_list = [float(cw_dict.get(c, 1.0)) for c in range(3)]  # [w_DOWN, w_SIDE, w_UP]
 
     # ── Optuna hyperparameter search (or reuse pretrained params) ─────────────
     if pretrained_hyperparams is not None:
