@@ -1,7 +1,7 @@
 streamlit>=1.35.0
 yfinance>=0.2.40
 pandas>=2.0.0
-numpy>=1.24.0
+numpy>=1.26.4,<2.0.0
 xgboost>=2.0.0,<3.0.0
 lightgbm>=4.3.0
 catboost>=1.2.5
@@ -13,3 +13,4 @@ fredapi>=0.5.1
 imbalanced-learn>=0.12.0
 tensorflow>=2.13.0
 anthropic>=0.40.0
+typing-extensions>=4.10.0
