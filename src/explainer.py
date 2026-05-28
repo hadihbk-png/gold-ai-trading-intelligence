@@ -79,30 +79,43 @@ def _build_explanation_prompt(sd: dict) -> str:
 
 
 def _build_brief_prompt(sd: dict, date: str) -> str:
-    sig     = sd.get("signal",             "SIDEWAYS")
-    conf    = sd.get("confidence", 0) * 100
-    price   = sd.get("gold_price",         0.0)
-    chg     = sd.get("price_change_pct",   0.0)
-    regime  = sd.get("market_regime",      "Neutral")
-    atr_pct = sd.get("atr_pct",            1.0)
-    bb_pctb = sd.get("bb_pctb",            0.5)
-    rsi     = sd.get("rsi",                50.0)
-    vix     = sd.get("vix",                20.0)
-    dp      = sd.get("directional_probs",  {})
-    p_up    = dp.get("UP",   0.0) * 100
-    p_dn    = dp.get("DOWN", 0.0) * 100
+    sig      = sd.get("signal",             "SIDEWAYS")
+    conf     = sd.get("confidence", 0) * 100
+    price    = sd.get("gold_price",         0.0)
+    chg      = sd.get("price_change_pct",   0.0)
+    regime   = sd.get("market_regime",      "Neutral")
+    atr_pct  = sd.get("atr_pct",            1.0)
+    bb_pctb  = sd.get("bb_pctb",            0.5)
+    rsi      = sd.get("rsi",                50.0)
+    vix      = sd.get("vix",                20.0)
+    dp       = sd.get("directional_probs",  {})
+    p_up     = dp.get("UP",   0.0) * 100
+    p_dn     = dp.get("DOWN", 0.0) * 100
+    aed_price = sd.get("aed_price")
+    lbma_am   = sd.get("lbma_am")
+    lbma_pm   = sd.get("lbma_pm")
+
+    aed_str  = f" (AED {aed_price:,.0f})" if aed_price else ""
+    lbma_str = ""
+    if lbma_am and lbma_pm:
+        lbma_str = (
+            f"- LBMA AM Fix: ${lbma_am:,.2f} · LBMA PM Fix: ${lbma_pm:,.2f} "
+            f"(London Bullion Market Association benchmarks)\n"
+        )
 
     return (
         f"Date: {date}. Write a morning market brief for gold (XAU/USD).\n\n"
         f"Current market data:\n"
-        f"- Gold price: ${price:,.2f} ({chg:+.2f}% overnight)\n"
+        f"- Gold price: ${price:,.2f}{aed_str} ({chg:+.2f}% overnight)\n"
+        f"{lbma_str}"
         f"- Today's AI signal: {sig} ({conf:.0f}% model confidence)\n"
         f"- Model directional probabilities: UP {p_up:.0f}%, DOWN {p_dn:.0f}%\n"
         f"- RSI: {rsi:.1f}, Bollinger %B: {bb_pctb:.2f}, ATR: {atr_pct:.1f}% of price\n"
         f"- VIX: {vix:.1f}, Market regime: {regime}\n\n"
         f"Structure the brief as: overnight move summary, today's signal and what it "
         f"signals, key support/resistance levels (derive from BB and recent action), "
-        f"regime context, one actionable observation, risk note."
+        f"regime context, one actionable observation, risk note. "
+        f"Where relevant, reference the LBMA fix to contextualise spot vs benchmark."
     )
 
 

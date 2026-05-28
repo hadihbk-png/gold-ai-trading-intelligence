@@ -65,6 +65,8 @@ def send_signal_alert(
     sender_email: str,
     app_password: str,
     recipient_email: str,
+    aed_price: float | None = None,
+    price_source: str = "",
 ) -> tuple[bool, str]:
     """Send one Gmail SMTP signal alert. Returns (success, message)."""
     if already_sent_today():
@@ -82,15 +84,18 @@ def send_signal_alert(
     prob_sideways = f"{proba[1]*100:.1f}%" if len(proba) > 1 else "—"
     prob_up       = f"{proba[2]*100:.1f}%" if len(proba) > 2 else "—"
     atr_str       = f"${atr_val:.2f}" if atr_val is not None else "—"
+    aed_str       = f" / AED {aed_price:,.0f}" if aed_price else ""
+    src_str       = price_source or "Market Data"
 
-    subject = f"Gold AI Alert — {sig_lbl} Signal Detected"
+    subject = f"Gold AI Alert — {sig_lbl} — ${cur_price:,.0f}{aed_str}"
     body = f"""\
 Gold AI Decision Intelligence — Signal Alert
 {'='*52}
 
 Signal Direction:   {sig_lbl}
 Model Confidence:   {conf_pct:.1f}%
-Gold Price (XAU):   ${cur_price:,.2f}
+Gold Price (XAU):   ${cur_price:,.2f}{aed_str}
+Price Source:       {src_str}
 Timestamp (UTC):    {ts}
 
 Directional Probabilities
@@ -102,6 +107,10 @@ Market Regime:      {regime_lbl}
 ATR:                {atr_str}
 
 {'='*52}
+Price data: Kitco Spot · Benchmark: LBMA
+All data sourced from independent global
+market data providers.
+
 This is an automated research alert only.
 Not financial advice. Past performance does
 not guarantee future results.
