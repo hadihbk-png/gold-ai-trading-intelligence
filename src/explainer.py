@@ -34,10 +34,41 @@ _BRIEF_SYSTEM = (
     "AI signal, key technical levels (support/resistance from Bollinger Bands "
     "and recent price action), market regime context, and one actionable "
     "observation. End with a brief risk note. 200-250 words. "
-    "This is research context only — not financial advice."
+    "This is research context only — not financial advice.\n\n"
+    "FORMATTING RULES:\n"
+    "- Each section label must appear on its own line as bold markdown, e.g. **Overnight Move**\n"
+    "- Follow each label immediately with a newline, then the section content\n"
+    "- Use **bold** for section labels only\n"
+    "- Never use *italics* anywhere in the response\n"
+    "- Never place asterisks adjacent to numbers, dollar signs, or financial figures\n"
+    "- Write numbers plainly: 4,384 not *4,384*\n"
+    "- Use plain dashes for ranges: 4,320-4,340\n"
+    "- No LaTeX, no special math formatting\n"
+    "- Required section order: **Overnight Move**, **Today's Signal**, "
+    "**Key Levels**, **Regime Context**, **Actionable Observation**, **Risk Note**"
 )
 
 _MODEL = "claude-sonnet-4-6"
+
+
+# ── Markdown sanitiser ─────────────────────────────────────────────────────────
+
+def sanitize_for_markdown(text: str) -> str:
+    """
+    Prevent Streamlit st.markdown() from misinterpreting numeric/punctuation
+    patterns as italic markers.  Escapes lone asterisks that sit adjacent to
+    digits or closing parentheses so they are rendered literally.
+    """
+    import re
+
+    # digit*word  →  digit word  (e.g. "3.43%*overnight" → "3.43% overnight")
+    text = re.sub(r'(\d)\*(\w)', r'\1 \2', text)
+    # )*word  →  ) word
+    text = re.sub(r'\)\*(\w)', r') \1', text)
+    # Escape any remaining lone asterisk (not part of ** bold markers)
+    text = re.sub(r'(?<!\*)\*(?!\*)', r'\\*', text)
+
+    return text
 
 
 # ── Prompt builders ────────────────────────────────────────────────────────────
@@ -112,10 +143,16 @@ def _build_brief_prompt(sd: dict, date: str) -> str:
         f"- Model directional probabilities: UP {p_up:.0f}%, DOWN {p_dn:.0f}%\n"
         f"- RSI: {rsi:.1f}, Bollinger %B: {bb_pctb:.2f}, ATR: {atr_pct:.1f}% of price\n"
         f"- VIX: {vix:.1f}, Market regime: {regime}\n\n"
-        f"Structure the brief as: overnight move summary, today's signal and what it "
-        f"signals, key support/resistance levels (derive from BB and recent action), "
-        f"regime context, one actionable observation, risk note. "
-        f"Where relevant, reference the LBMA fix to contextualise spot vs benchmark."
+        f"Structure the brief using these exact bold section labels, each on its own line:\n"
+        f"**Overnight Move**\n"
+        f"**Today's Signal**\n"
+        f"**Key Levels**\n"
+        f"**Regime Context**\n"
+        f"**Actionable Observation**\n"
+        f"**Risk Note**\n\n"
+        f"Where relevant, reference the LBMA fix to contextualise spot vs benchmark. "
+        f"Do not use asterisks adjacent to numbers or financial figures. "
+        f"Write numbers plainly — no italics, no LaTeX."
     )
 
 

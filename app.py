@@ -644,7 +644,7 @@ _anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
 _signal_data_for_api = None
 if signal:
     try:
-        from src.explainer import generate_signal_explanation, generate_morning_brief
+        from src.explainer import generate_signal_explanation, generate_morning_brief, sanitize_for_markdown
         from src.regime import REGIME_LABELS as _REGIME_LABELS_FOR_API
 
         _rsi_api   = float(df["RSI"].iloc[-1])       if "RSI"         in df.columns else 50.0
@@ -746,7 +746,7 @@ with st.expander("🌅 Morning Brief", expanded=True):
                 f"Generated at {datetime.now(_UAE_TZ).strftime('%H:%M')} UAE  ·  "
                 f"Powered by Claude AI — Not financial advice"
             )
-            st.markdown(_cached_brief["content"])
+            st.markdown(sanitize_for_markdown(_cached_brief["content"]))
         elif _anthropic_key:
             st.warning("Brief generation failed — check your ANTHROPIC_API_KEY and connectivity.")
 
