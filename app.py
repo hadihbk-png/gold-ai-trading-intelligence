@@ -14,6 +14,20 @@ import streamlit as st
 warnings.filterwarnings("ignore")
 sys.path.insert(0, os.path.dirname(__file__))
 
+import re as _re
+import unicodedata as _ud
+def sanitize_for_markdown(text):
+    # NFKC normalization converts math italic/bold Unicode variants to plain ASCII.
+    # e.g. U+1D44E (math italic a) -> "a", U+1D460 (math italic s) -> "s"
+    text = _ud.normalize("NFKC", text)
+    # Fix MINUS SIGN and curly quotes that NFKC may not collapse to ASCII
+    text = text.replace(chr(0x2212), "-").replace(chr(0x2019), chr(39)).replace(chr(0x2018), chr(39))
+    # Strip *italic* spans (including multi-line): replace *...*  with just the inner text
+    text = _re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text, flags=_re.DOTALL)
+    # Remove any remaining lone asterisks not part of **bold**
+    text = _re.sub(r"(?<!\*)\*(?!\*)", "", text)
+    return text
+
 from src.config import (
     PRIMARY_TICKER, TRAIN_YEARS, TEST_YEARS, N_TRIALS,
     INITIAL_CAPITAL, MIN_CONFIDENCE, MAX_ATR_PCT,
@@ -644,7 +658,7 @@ _anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
 _signal_data_for_api = None
 if signal:
     try:
-        from src.explainer import generate_signal_explanation, generate_morning_brief, sanitize_for_markdown
+        from src.explainer import generate_signal_explanation, generate_morning_brief
         from src.regime import REGIME_LABELS as _REGIME_LABELS_FOR_API
 
         _rsi_api   = float(df["RSI"].iloc[-1])       if "RSI"         in df.columns else 50.0

@@ -35,15 +35,17 @@ _BRIEF_SYSTEM = (
     "and recent price action), market regime context, and one actionable "
     "observation. End with a brief risk note. 200-250 words. "
     "This is research context only — not financial advice.\n\n"
-    "FORMATTING RULES:\n"
-    "- Each section label must appear on its own line as bold markdown, e.g. **Overnight Move**\n"
-    "- Follow each label immediately with a newline, then the section content\n"
-    "- Use **bold** for section labels only\n"
-    "- Never use *italics* anywhere in the response\n"
-    "- Never place asterisks adjacent to numbers, dollar signs, or financial figures\n"
-    "- Write numbers plainly: 4,384 not *4,384*\n"
-    "- Use plain dashes for ranges: 4,320-4,340\n"
-    "- No LaTeX, no special math formatting\n"
+    "STRICT FORMATTING RULES — follow exactly:\n"
+    "- Output ONLY plain ASCII text and **bold** markdown. Nothing else.\n"
+    "- NEVER use *italic* asterisks anywhere — not around words, numbers, or phrases.\n"
+    "- NEVER use Unicode mathematical italic characters (the styled letters that look like "
+    "𝑎𝑏𝑐 or 𝐴𝐵𝐶). Use only standard ASCII letters a-z A-Z.\n"
+    "- NEVER use Unicode minus sign (−), en-dash (–) or any non-ASCII punctuation. "
+    "Use only plain hyphen-minus (-).\n"
+    "- Write all numbers as plain digits with standard commas: 4,384 not *4,384*\n"
+    "- Use plain hyphens for ranges: 4,320-4,340\n"
+    "- No LaTeX, no math formatting, no HTML, no markdown except **bold**.\n"
+    "- Section labels: each on its own line as **Label**, followed immediately by the content.\n"
     "- Required section order: **Overnight Move**, **Today's Signal**, "
     "**Key Levels**, **Regime Context**, **Actionable Observation**, **Risk Note**"
 )
@@ -55,18 +57,25 @@ _MODEL = "claude-sonnet-4-6"
 
 def sanitize_for_markdown(text: str) -> str:
     """
-    Prevent Streamlit st.markdown() from misinterpreting numeric/punctuation
-    patterns as italic markers.  Escapes lone asterisks that sit adjacent to
-    digits or closing parentheses so they are rendered literally.
+    Strip markdown italic markers and normalize Unicode mathematical italic
+    characters that Claude sometimes outputs instead of plain ASCII.
+    Preserves **bold** section labels.
     """
     import re
 
-    # digit*word  →  digit word  (e.g. "3.43%*overnight" → "3.43% overnight")
-    text = re.sub(r'(\d)\*(\w)', r'\1 \2', text)
-    # )*word  →  ) word
-    text = re.sub(r'\)\*(\w)', r') \1', text)
-    # Escape any remaining lone asterisk (not part of ** bold markers)
-    text = re.sub(r'(?<!\*)\*(?!\*)', r'\\*', text)
+    # Normalize Unicode mathematical italic letters → plain ASCII
+    _MATH_ITALIC_SMALL = {chr(0x1D44E + i): chr(ord('a') + i) for i in range(26)}
+    _MATH_ITALIC_SMALL['ℎ'] = 'h'
+    _MATH_ITALIC_CAP   = {chr(0x1D434 + i): chr(ord('A') + i) for i in range(26)}
+    _unicode_map = {**_MATH_ITALIC_SMALL, **_MATH_ITALIC_CAP}
+    _unicode_map['−'] = '-'
+    _unicode_map['’'] = "'"
+    text = text.translate(str.maketrans(_unicode_map))
+
+    # Strip *italic* spans — replace *...*  with just the inner text
+    text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'\1', text)
+    # Remove any remaining lone asterisks not part of **bold**
+    text = re.sub(r'(?<!\*)\*(?!\*)', '', text)
 
     return text
 
