@@ -201,6 +201,30 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     _wr_range = (_wr_high - _wr_low).replace(0, np.nan)
     df["Williams_R"] = -100 * (_wr_high - close) / _wr_range
 
+    # ── DOWN-class sensitivity features ──────────────────────────────────────
+    df["momentum_3d"]  = close.pct_change(3)
+    df["momentum_5d"]  = close.pct_change(5)
+    df["momentum_10d"] = close.pct_change(10)
+
+    df["rsi_overbought"] = (df["RSI"] > 70).astype(int)
+    df["rsi_oversold"]   = (df["RSI"] < 30).astype(int)
+    df["rsi_extreme"]    = ((df["RSI"] > 75) | (df["RSI"] < 25)).astype(int)
+
+    df["dist_from_20d_high"] = close / high.rolling(20).max().replace(0, np.nan) - 1
+    df["dist_from_20d_low"]  = close / low.rolling(20).min().replace(0, np.nan) - 1
+
+    up_days = close > close.shift(1)
+    df["consec_up_count"] = (
+        up_days.groupby((up_days != up_days.shift()).cumsum()).cumcount() + 1
+    )
+    df.loc[~up_days, "consec_up_count"] = 0
+
+    down_days = close < close.shift(1)
+    df["consec_down_count"] = (
+        down_days.groupby((down_days != down_days.shift()).cumsum()).cumcount() + 1
+    )
+    df.loc[~down_days, "consec_down_count"] = 0
+
     df["DayOfWeek"] = df.index.dayofweek   # 0=Mon … 4=Fri
     df["Month"]     = df.index.month       # 1–12
 

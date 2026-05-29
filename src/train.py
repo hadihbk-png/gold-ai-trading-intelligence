@@ -226,20 +226,26 @@ def _eval_individual_classifiers(
     xgb_p, lgb_p, cb_p,
     sample_weight=None,
     class_weights_list=None,
+    cw_dict=None,
 ) -> dict:
     """Train individual L1 classifiers with class balancing + SMOTE for diagnostics."""
     from src.ensemble import _smote_resample
     Xtr_s, ytr_s = _smote_resample(Xtr, ytr, random_state=RANDOM_STATE)
-    # If SMOTE fired, class_weight/sample_weight already handled by resampling
-    sw = None if (Xtr_s.shape[0] != Xtr.shape[0]) else sample_weight
-    cw_list = None if (Xtr_s.shape[0] != Xtr.shape[0]) else class_weights_list
+
+    # Always apply class weights — recompute sample_weight on SMOTE output when SMOTE fires
+    smote_fired = Xtr_s.shape[0] != Xtr.shape[0]
+    if smote_fired and cw_dict is not None:
+        sw = np.array([cw_dict.get(int(y), 1.0) for y in ytr_s])
+    else:
+        sw = sample_weight
+    cw_list = class_weights_list  # always pass class weights to CatBoost
 
     results = {}
     configs = [
         ("XGBoost",  xgb.XGBClassifier(**{**xgb_p, "random_state": RANDOM_STATE, "verbosity": 0})),
         ("LightGBM", lgb.LGBMClassifier(**{**lgb_p, "random_state": RANDOM_STATE, "verbose": -1,
                                            "n_jobs": 1, "deterministic": True,
-                                           **({"class_weight": "balanced"} if sw is not None else {})})),
+                                           "class_weight": "balanced"})),
         ("CatBoost", cb.CatBoostClassifier(
             **{**cb_p, "random_seed": RANDOM_STATE, "verbose": 0, "loss_function": "MultiClass",
                "thread_count": 1,
@@ -391,6 +397,7 @@ def train_all_models(
         xgb_clf_p, lgb_clf_p, cb_clf_p,
         sample_weight=sw_train,
         class_weights_list=cb_cw_list,
+        cw_dict=cw_dict,
     )
 
     # ── Stacking ensembles ────────────────────────────────────────────────────
@@ -441,7 +448,7 @@ def train_all_models(
 
     # ── Threshold optimisation on OOF probabilities ───────────────────────────
     log("Optimising confidence thresholds on OOF data…")
-    thresholds = {"threshold_up": 0.40, "threshold_down": 0.33}
+    thresholds = {"threshold_up": 0.35, "threshold_down": 0.25}
     try:
         from src.calibration import optimize_threshold, compute_brier_scores
         oof_y = getattr(stack_clf, "_oof_y", None)

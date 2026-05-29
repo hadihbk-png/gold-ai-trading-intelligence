@@ -66,10 +66,9 @@ def optimize_threshold(
     Find (threshold_up, threshold_down) that maximises the chosen metric
     on the provided data set (use OOF probas to avoid over-fitting).
 
-    Separate grids for UP and DOWN thresholds — DOWN grid uses 0.35–0.45
-    to filter weak DOWN calls while retaining high-confidence shorts.
-    UP grid uses a wider range (0.33–0.65) where UP signals emerge at
-    higher confidence.
+    Separate grids for UP and DOWN thresholds — DOWN grid uses 0.25–0.45
+    to capture under-scored DOWN signals; UP grid uses 0.33–0.65 where UP
+    signals emerge at higher confidence.
 
     metric:
       'profit_proxy' — (default) balances directional accuracy, DOWN recall,
@@ -91,15 +90,13 @@ def optimize_threshold(
         thresholds_up = np.linspace(0.33, 0.65, 33)
 
     if thresholds_down is None:
-        # DOWN probabilities are compressed by the meta-learner but calibration
-        # shows P(DOWN)>0.30 → 67%+ actual DOWN rate, meaning the model is
-        # under-confident.  Raising the floor to 0.35 filters out the weakest
-        # spurious DOWN calls while keeping genuinely high-confidence shorts.
-        thresholds_down = np.linspace(0.35, 0.45, 11)
+        # Lower grid starting at 0.25 to allow the optimizer to surface DOWN signals
+        # that the meta-learner under-scores (calibration shows under-confidence).
+        thresholds_down = np.linspace(0.25, 0.45, 21)
 
     best_score       = -np.inf
-    best_thresh_up   = 0.40
-    best_thresh_down = 0.33
+    best_thresh_up   = 0.35
+    best_thresh_down = 0.25
     min_trades = max(10, int(min_trade_freq * len(y_true)))
 
     p_down = probas[:, 0]
@@ -164,8 +161,8 @@ def optimize_threshold(
 
 def apply_threshold(
     probas: np.ndarray,
-    threshold_up:   float = 0.50,
-    threshold_down: float = 0.50,
+    threshold_up:   float = 0.35,
+    threshold_down: float = 0.25,
 ) -> np.ndarray:
     """Apply custom per-class confidence thresholds to a probability matrix."""
     preds  = np.full(len(probas), 1, dtype=int)

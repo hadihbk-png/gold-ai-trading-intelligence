@@ -135,7 +135,7 @@ for cls, score in brier.items():
 
 sub("Stacking lift vs individual models")
 ind_accs = {n: clf_results[n]["metrics"]["Accuracy"]
-            for n in clf_results if n != "Stacking"}
+            for n in clf_results if n not in ("Stacking", "_hyperparams")}
 for name, acc in ind_accs.items():
     print(f"  {name:<10} : {acc:.1%}")
 print(f"  {'Stacking':<10} : {overall_acc:.1%}  (+{(overall_acc - np.mean(list(ind_accs.values())))*100:.2f}pp vs avg)")
