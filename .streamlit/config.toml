@@ -1,5 +1,6 @@
 [server]
 headless = true
+fileWatcherType = "poll"
 
 [theme]
 base = "dark"
