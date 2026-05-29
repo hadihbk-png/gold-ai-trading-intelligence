@@ -1402,9 +1402,10 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
         ))
         _mon_fig.add_hline(
             y=33,
-            line=dict(color="#C9A84C", dash="dot", width=2),
+            line=dict(color="#C9A84C", dash="dash", width=2.5),
             annotation_text="33% baseline",
-            annotation_position="right",
+            annotation_position="top right",
+            layer="above",
         )
         _dark(_mon_fig, height=300)
         _mon_fig.update_layout(xaxis_title="Month", yaxis_title="Accuracy (%)")
