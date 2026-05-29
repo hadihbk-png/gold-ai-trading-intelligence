@@ -599,6 +599,11 @@ with st.expander("🔍 Data Sources & Integrity", expanded=False):
                 delta="✅ Normal (within ±0.5%)" if _var_ok else "⚠️ Abnormal (>±0.5%)",
                 delta_color="off",
             )
+            st.caption(
+                "ℹ️ Note: The LBMA Fix uses GLD ETF as a proxy which may lag intraday "
+                "spot price moves. Variance above ±0.5% during active market hours is "
+                "common. It typically narrows at the next LBMA Fix publication."
+            )
         else:
             st.info("LBMA fix unavailable — variance cannot be computed.")
 
@@ -633,7 +638,12 @@ with st.expander("🔍 Data Sources & Integrity", expanded=False):
         _src = "🔒 Central bank fixed peg" if _code in _PEGGED else f"🔄 Live ({_fx_uae_time} UAE)"
         _fx_rows.append({"Currency": _code, "Rate (per USD)": f"{_r:.6f}", "Source": _src})
     if _fx_rows:
-        st.dataframe(pd.DataFrame(_fx_rows), hide_index=True, use_container_width=True)
+        st.dataframe(
+            pd.DataFrame(_fx_rows),
+            hide_index=True,
+            use_container_width=True,
+            on_select="ignore",
+        )
 
     st.divider()
 
@@ -757,7 +767,7 @@ with st.expander("🌅 Morning Brief", expanded=True):
         _cached_brief = st.session_state.morning_brief
         if _cached_brief and _cached_brief.get("content"):
             _brief_cols[0].caption(
-                f"Generated at {datetime.now(_UAE_TZ).strftime('%H:%M')} UAE  ·  "
+                f"Generated at {datetime.now(_UAE_TZ).strftime('%H:%M UAE · %A %d %B %Y')}  ·  "
                 f"Powered by Claude AI — Not financial advice"
             )
             st.markdown(sanitize_for_markdown(_cached_brief["content"]))
@@ -803,6 +813,20 @@ if signal:
     else:
         _ss_grade = "Very Strong — High Conviction Signal"
 
+    # Dynamic context line by conviction tier
+    if _ss_conf < 55:
+        _conf_ctx = (
+            "⚠️ Low conviction — model sees balanced probabilities. "
+            "Consider waiting for a stronger signal."
+        )
+        _conf_ctx_color = "#FFA500"
+    elif _ss_conf <= 70:
+        _conf_ctx = "📊 Moderate conviction — signal has edge but is not conclusive."
+        _conf_ctx_color = "#00BFFF"
+    else:
+        _conf_ctx = "🎯 High conviction — model strongly favours this direction."
+        _conf_ctx_color = "#00CC88"
+
     # Plain-English summary
     _ss_grade_word = _ss_grade.split("—")[0].strip().lower()
     if _ss_int == 1:
@@ -829,6 +853,8 @@ if signal:
             <div style="background:{_ss_color};width:{_ss_conf:.1f}%;
                         height:100%;border-radius:6px;"></div>
         </div>
+        <div style="margin-top:8px;font-size:0.9em;color:{_conf_ctx_color};
+                    font-weight:500;">{_conf_ctx}</div>
         <div style="margin-top:8px;font-size:0.95em;
                     color:{_ss_color};font-weight:600;">{_ss_grade}</div>
         <div style="margin-top:10px;font-size:0.95em;color:#e0e0e0;">
@@ -1375,9 +1401,10 @@ with st.expander("📈 Backtesting Deep-Dive", expanded=False):
             textposition="outside",
         ))
         _mon_fig.add_hline(
-            y=33, line=dict(color="#FFA500", dash="dash", width=1),
-            annotation_text="33% random baseline",
-            annotation_position="bottom right",
+            y=33,
+            line=dict(color="#C9A84C", dash="dot", width=2),
+            annotation_text="33% baseline",
+            annotation_position="right",
         )
         _dark(_mon_fig, height=300)
         _mon_fig.update_layout(xaxis_title="Month", yaxis_title="Accuracy (%)")
