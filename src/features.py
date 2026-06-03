@@ -8,6 +8,81 @@ from src.config import (
 )
 
 
+# ── Safe macro data fetcher ────────────────────────────────────────────────────
+
+def fetch_macro_data(ticker: str, start: str, end: str, name: str):
+    """Fetch a single macro series via yfinance; returns None on any failure."""
+    try:
+        import yfinance as yf
+        data = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
+        if hasattr(data.columns, "levels"):
+            data.columns = [c[0] for c in data.columns]
+        if data.empty:
+            return None
+        return data["Close"].rename(name)
+    except Exception:
+        return None
+
+
+# ── Regime classification ──────────────────────────────────────────────────────
+
+def classify_regime(df: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    """
+    Classify each bar into 'high_vol', 'trending', or 'neutral' regime.
+    Used to select which regime-conditional model applies at inference.
+    """
+    df = df.copy()
+    if "ATR" not in df.columns or "Close" not in df.columns:
+        df["regime"] = "neutral"
+        return df
+
+    atr_pct     = df["ATR"] / df["Close"].replace(0, np.nan)
+    atr_median  = atr_pct.rolling(60).median()
+    price_chg   = df["Close"].pct_change(window).abs()
+
+    df["regime"] = "neutral"
+    df.loc[atr_pct > atr_median * 1.3, "regime"] = "high_vol"
+    df.loc[
+        (price_chg > 0.03) & (atr_pct <= atr_median * 1.3),
+        "regime",
+    ] = "trending"
+    return df
+
+
+# ── Feature drift detection ────────────────────────────────────────────────────
+
+def detect_feature_drift(live_features_dict: dict, stats_dict: dict) -> tuple:
+    """
+    Compare live feature values against training distribution statistics.
+
+    Returns (drift_score, drifted_list) where drift_score ∈ [0, 1]
+    and drifted_list contains per-feature detail dicts.
+    """
+    drifted = []
+    try:
+        for feat, val in live_features_dict.items():
+            if feat not in stats_dict:
+                continue
+            std = stats_dict[feat].get("std", 0)
+            if std == 0 or std is None:
+                continue
+            try:
+                z = abs((float(val) - stats_dict[feat]["mean"]) / std)
+            except (TypeError, ValueError):
+                continue
+            if z > 3.0:
+                drifted.append({
+                    "feature":    feat,
+                    "z_score":    round(z, 1),
+                    "live_value": round(float(val), 4),
+                    "train_mean": round(stats_dict[feat]["mean"], 4),
+                })
+        drift_score = min(len(drifted) / 10, 1.0)
+        return drift_score, drifted
+    except Exception:
+        return 0.0, []
+
+
 # ── Indicator helpers ─────────────────────────────────────────────────────────
 
 def _rsi(series, period=RSI_PERIOD):
@@ -228,6 +303,80 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df["DayOfWeek"] = df.index.dayofweek   # 0=Mon … 4=Fri
     df["Month"]     = df.index.month       # 1–12
 
+    # ── 4B: Seasonality features ──────────────────────────────────────────────
+    df["quarter"]       = df.index.quarter
+    df["day_of_week"]   = df.index.dayofweek
+    try:
+        df["week_of_year"] = df.index.isocalendar().week.astype(int)
+    except Exception:
+        df["week_of_year"] = df.index.to_series().apply(lambda x: x.isocalendar()[1])
+    df["q4_demand"]      = df["Month"].isin([10, 11, 12]).astype(int)
+    df["january_effect"] = (df["Month"] == 1).astype(int)
+    df["summer_low_vol"] = df["Month"].isin([6, 7, 8]).astype(int)
+    df["is_monday"]      = (df["DayOfWeek"] == 0).astype(int)
+    df["is_friday"]      = (df["DayOfWeek"] == 4).astype(int)
+
+    # ── 4A: Extended macro features & gold-macro relationships ────────────────
+    # Reuse existing _Close columns (already downloaded by data_loader)
+    _dxy_s   = df.get("DX_Y_NYB_Close")
+    _tnx_s   = df.get("TNX_Close")
+    _oil_s   = df.get("CL_F_Close")
+    _vix_s   = df.get("VIX_Close")
+    _spy_s   = df.get("SPY_Close")
+
+    def _safe_series(src):
+        return src if src is not None else pd.Series(np.nan, index=df.index)
+
+    for _col_name, _src in [
+        ("dxy",   _dxy_s),
+        ("us10y", _tnx_s),
+        ("oil",   _oil_s),
+        ("vix",   _vix_s),
+        ("sp500", _spy_s),
+    ]:
+        if _src is None:
+            continue
+        _s = _src.copy()
+        df[f"{_col_name}_close"]    = _s
+        df[f"{_col_name}_chg1d"]    = _s.pct_change(1)
+        df[f"{_col_name}_chg5d"]    = _s.pct_change(5)
+        _sma20 = _s.rolling(20).mean()
+        df[f"{_col_name}_vs_sma20"] = _s / _sma20.replace(0, np.nan) - 1
+
+    # OIL derived features (not covered in existing macro block)
+    if _oil_s is not None:
+        _oil_ma20 = _oil_s.rolling(20).mean()
+        df["oil_vs_sma20_slope"] = _oil_s.pct_change(10) * 100
+
+    # Gold-macro cross-asset relationships
+    if _dxy_s is not None:
+        df["gold_dxy_corr20"] = close.rolling(20).corr(_dxy_s)
+    if _oil_s is not None:
+        df["gold_oil_corr20"] = close.rolling(20).corr(_oil_s)
+    if _tnx_s is not None and _vix_s is not None:
+        df["real_rate_proxy"] = _tnx_s - _vix_s * 0.1
+    if _vix_s is not None and _spy_s is not None:
+        _vix_chg1d  = _vix_s.pct_change(1)
+        _spy_chg1d  = _spy_s.pct_change(1)
+        df["risk_off_index"] = (_vix_chg1d * -1 + _spy_chg1d * -1) / 2
+
+    # Forward-fill then back-fill any NaN introduced by macro series gaps
+    _new_macro_cols = [c for c in df.columns if c.endswith(("_chg1d", "_chg5d",
+                       "_vs_sma20", "_close", "_corr20"))
+                       if c in ("dxy_close", "us10y_close", "oil_close",
+                                "vix_close", "sp500_close",
+                                "dxy_chg1d", "us10y_chg1d", "oil_chg1d",
+                                "vix_chg1d", "sp500_chg1d",
+                                "dxy_chg5d", "us10y_chg5d", "oil_chg5d",
+                                "vix_chg5d", "sp500_chg5d",
+                                "dxy_vs_sma20", "us10y_vs_sma20", "oil_vs_sma20",
+                                "vix_vs_sma20", "sp500_vs_sma20",
+                                "gold_dxy_corr20", "gold_oil_corr20",
+                                "real_rate_proxy", "risk_off_index")]
+    for _nc in _new_macro_cols:
+        if _nc in df.columns:
+            df[_nc] = df[_nc].ffill().bfill()
+
     # Targets (shift -1 → next-day; last row gets NaN → dropped at training)
     df["Target_Close"] = close.shift(-1)
     df["Target_Return"] = close.pct_change().shift(-1)
@@ -266,10 +415,13 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_feature_columns(df: pd.DataFrame) -> list:
-    """Return model input columns — no raw OHLCV, no targets, no ext _Close."""
+    """Return model input columns — no raw OHLCV, no targets, no ext _Close, no string cols."""
     exclude = {
         "Open", "High", "Low", "Close", "Volume",
         "Target_Close", "Target_Return", "Target_Signal", "Target_Direction",
+        "regime",  # string column — used for regime model selection, not as feature
     }
     exclude.update(c for c in df.columns if c.endswith("_Close"))
-    return [c for c in df.columns if c not in exclude]
+    # Also exclude any remaining object/string dtype columns
+    numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
+    return [c for c in df.columns if c not in exclude and c in numeric_cols]

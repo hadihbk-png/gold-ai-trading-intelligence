@@ -1,0 +1,10 @@
+2026-05-29 15:51:04.225 Uvicorn server started on 0.0.0.0:8504
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8504
+  Network URL: http://192.168.1.123:8504
+  External URL: http://5.194.212.252:8504
+
+WARNING:tensorflow:From C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\site-packages\keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
+

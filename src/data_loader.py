@@ -234,3 +234,146 @@ def get_fx_rates() -> dict:
         "rates":       rates,
         "fetched_utc": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── Silver spot price waterfall ────────────────────────────────────────────────
+
+def get_silver_price(av_api_key: str = "") -> tuple:
+    """
+    Silver spot price waterfall:
+    1. yfinance SI=F (silver futures)
+    2. yfinance SLV (silver ETF proxy × 10)
+    3. Alpha Vantage XAG/USD
+    Returns (price_or_None, source_label).
+    """
+    # Method 1: yfinance SI=F
+    try:
+        d = yf.download("SI=F", period="5d", progress=False, auto_adjust=True)
+        d = _flatten(d)
+        if not d.empty and "Close" in d.columns:
+            price = float(d["Close"].dropna().iloc[-1])
+            if price > 1:
+                return price, "Silver Futures SI=F (yfinance)"
+    except Exception:
+        pass
+
+    # Method 2: yfinance SLV × 10 (1 SLV share ≈ 1/10 oz silver)
+    try:
+        d = yf.download("SLV", period="5d", progress=False, auto_adjust=True)
+        d = _flatten(d)
+        if not d.empty and "Close" in d.columns:
+            price = float(d["Close"].dropna().iloc[-1]) * 10
+            if price > 1:
+                return price, "Silver ETF SLV×10 (yfinance proxy)"
+    except Exception:
+        pass
+
+    # Method 3: Alpha Vantage XAG
+    if av_api_key:
+        import requests
+        try:
+            resp = requests.get(
+                "https://www.alphavantage.co/query",
+                params={"function": "CURRENCY_EXCHANGE_RATE",
+                        "from_currency": "XAG", "to_currency": "USD",
+                        "apikey": av_api_key},
+                timeout=5,
+            )
+            rate_info = resp.json().get("Realtime Currency Exchange Rate", {})
+            price = float(rate_info.get("5. Exchange Rate", 0))
+            if price > 1:
+                return price, "Alpha Vantage XAG (live)"
+        except Exception:
+            pass
+
+    return None, "Silver (unavailable)"
+
+
+# ── Platinum spot price waterfall ──────────────────────────────────────────────
+
+def get_platinum_price() -> tuple:
+    """
+    Platinum spot price waterfall:
+    1. yfinance PL=F (platinum futures)
+    2. yfinance PPLT (platinum ETF proxy)
+    Returns (price_or_None, source_label).
+    """
+    # Method 1: yfinance PL=F
+    try:
+        d = yf.download("PL=F", period="5d", progress=False, auto_adjust=True)
+        d = _flatten(d)
+        if not d.empty and "Close" in d.columns:
+            price = float(d["Close"].dropna().iloc[-1])
+            if price > 1:
+                return price, "Platinum Futures PL=F (yfinance)"
+    except Exception:
+        pass
+
+    # Method 2: yfinance PPLT (Aberdeen Physical Platinum ETF)
+    try:
+        d = yf.download("PPLT", period="5d", progress=False, auto_adjust=True)
+        d = _flatten(d)
+        if not d.empty and "Close" in d.columns:
+            price = float(d["Close"].dropna().iloc[-1])
+            if price > 1:
+                return price, "Platinum ETF PPLT (yfinance proxy)"
+    except Exception:
+        pass
+
+    return None, "Platinum (unavailable)"
+
+
+# ── Metal OHLCV downloader (charts + signal inference) ─────────────────────────
+
+def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
+    """
+    Download OHLCV + macro sidecars for a metal ticker.
+
+    Column names are set to exactly what add_features() expects:
+      DX_Y_NYB_Close, TNX_Close, VIX_Close, CL_F_Close, SPY_Close.
+
+    Default years=2 covers the dashboard and signal inference.
+    Pass years=5 for model training.
+    """
+    end   = datetime.today().strftime("%Y-%m-%d")
+    start = (datetime.today() - timedelta(days=365 * years + 90)).strftime("%Y-%m-%d")
+
+    try:
+        df = yf.download(ticker, start=start, end=end,
+                         progress=False, auto_adjust=True)
+        df = _flatten(df)
+        if df.empty:
+            return pd.DataFrame()
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    except Exception:
+        return pd.DataFrame()
+
+    # Macro sidecars — named EXACTLY as add_features() looks them up
+    _macro_map = {
+        "DX-Y.NYB": "DX_Y_NYB_Close",
+        "^TNX":     "TNX_Close",
+        "^VIX":     "VIX_Close",
+        "CL=F":     "CL_F_Close",
+        "SPY":      "SPY_Close",
+    }
+    for macro_ticker, col_name in _macro_map.items():
+        try:
+            m = yf.download(macro_ticker, start=start, end=end,
+                            progress=False, auto_adjust=True)
+            m = _flatten(m)
+            if not m.empty and "Close" in m.columns:
+                s = m["Close"]
+                if isinstance(s, pd.DataFrame):
+                    s = s.iloc[:, 0]
+                df[col_name] = s
+        except Exception:
+            pass
+
+    df.dropna(subset=["Close", "High", "Low"], inplace=True)
+    df.sort_index(inplace=True)
+
+    ext = [c for c in df.columns if c.endswith("_Close")]
+    if ext:
+        df[ext] = df[ext].ffill()
+
+    return df

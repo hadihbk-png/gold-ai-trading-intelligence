@@ -87,9 +87,9 @@ def send_signal_alert(
     aed_str       = f" / AED {aed_price:,.0f}" if aed_price else ""
     src_str       = price_source or "Market Data"
 
-    subject = f"Gold AI Alert — {sig_lbl} — ${cur_price:,.0f}{aed_str}"
+    subject = f"APEX Metals AI Alert — {sig_lbl} — ${cur_price:,.0f}{aed_str}"
     body = f"""\
-Gold AI Decision Intelligence — Signal Alert
+APEX Metals AI — Signal Alert
 {'='*52}
 
 Signal Direction:   {sig_lbl}
@@ -115,7 +115,7 @@ This is an automated research alert only.
 Not financial advice. Past performance does
 not guarantee future results.
 
-Gold AI Decision Intelligence Platform
+APEX Metals AI
 """
     msg = MIMEMultipart()
     msg["From"]    = sender_email
@@ -347,7 +347,7 @@ This is an automated research alert only.
 Not financial advice. Past performance does
 not guarantee future results.
 
-Gold AI Decision Intelligence Platform
+APEX Metals AI
 """
 
     msg = MIMEMultipart()

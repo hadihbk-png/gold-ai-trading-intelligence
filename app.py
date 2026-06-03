@@ -1,5 +1,5 @@
 """
-Gold AI Decision Intelligence Platform — Dashboard
+APEX Metals AI — Dashboard
 Streamlit multi-page app  |  NOT FINANCIAL ADVICE  |  Personal research only
 """
 import json
@@ -47,8 +47,8 @@ from src.wfv import run_wfv
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Gold AI Decision Intelligence — Dashboard",
-    page_icon="🥇",
+    page_title="APEX Metals AI",
+    page_icon="🏅",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -84,6 +84,266 @@ def _dark(fig, height=420):
     fig.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
     return fig
 
+
+# ── Step 5 helpers ─────────────────────────────────────────────────────────────
+def compute_decision_verdict(signal, confidence,
+                              regime, rsi, bb_pctb,
+                              rolling_accuracy,
+                              no_trade_score,
+                              classifier_consensus,
+                              roll_source=""):
+    reasons_for = []
+    reasons_against = []
+
+    if confidence >= 0.60:
+        reasons_for.append(f"Strong model confidence ({confidence:.0%})")
+    elif confidence < 0.50:
+        reasons_against.append(f"Low confidence ({confidence:.0%})")
+
+    if rolling_accuracy >= 0.40:
+        _src_tag = f" · {roll_source}" if roll_source else ""
+        reasons_for.append(
+            f"Model in strong recent form ({rolling_accuracy:.0%} rolling 30d{_src_tag})")
+    elif rolling_accuracy < 0.33:
+        _src_tag = f" · {roll_source}" if roll_source else ""
+        reasons_against.append(
+            f"Model below random baseline recently ({rolling_accuracy:.0%} rolling 30d{_src_tag})")
+
+    if regime == "high_vol":
+        reasons_against.append("High volatility regime — elevated uncertainty")
+    elif regime == "trending":
+        reasons_for.append("Trending regime — model performs best here")
+
+    if signal == "UP" and rsi > 75:
+        reasons_against.append("RSI overbought (>75) — mean reversion risk")
+    if signal == "DOWN" and rsi < 25:
+        reasons_against.append("RSI oversold (<25) — bounce risk")
+    if bb_pctb > 0.9:
+        reasons_against.append("Price at upper Bollinger Band")
+    if bb_pctb < 0.1:
+        reasons_against.append("Price at lower Bollinger Band")
+
+    if classifier_consensus < 0.67:
+        reasons_against.append(
+            f"Classifiers split — low consensus ({classifier_consensus:.0%})")
+
+    if no_trade_score >= 3:
+        reasons_against.append(
+            f"No-trade filter: {no_trade_score}/5 conditions active")
+
+    against = len(reasons_against)
+    for_    = len(reasons_for)
+    if against >= 3:
+        return ("NO-TRADE", "🔴", "#ef4444", reasons_for, reasons_against)
+    elif against >= 2:
+        return ("CAUTION",  "🟡", "#f59e0b", reasons_for, reasons_against)
+    elif against <= 1 and for_ >= 2:
+        return ("GO",       "🟢", "#22c55e", reasons_for, reasons_against)
+    else:
+        return ("CAUTION",  "🟡", "#f59e0b", reasons_for, reasons_against)
+
+
+def compute_trade_zones(price, signal, atr):
+    if signal == "UP":
+        entry_low  = price - atr * 0.3
+        entry_high = price + atr * 0.1
+        target     = price + atr * 2.0
+        stop       = price - atr * 1.0
+    elif signal == "DOWN":
+        entry_low  = price - atr * 0.1
+        entry_high = price + atr * 0.3
+        target     = price - atr * 2.0
+        stop       = price + atr * 1.0
+    else:
+        return None
+
+    reward = abs(target - price)
+    risk   = abs(stop   - price)
+    rr     = round(reward / risk, 1) if risk > 0 else 0
+    return {
+        "entry":  f"${entry_low:,.0f}–${entry_high:,.0f}",
+        "target": f"${target:,.0f}",
+        "stop":   f"${stop:,.0f}",
+        "rr":     f"{rr}:1",
+        "atr":    f"${atr:,.0f}",
+    }
+
+
+# ── Landing page ───────────────────────────────────────────────────────────────
+def show_landing_page():
+    """Render the APEX Metals AI landing page."""
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] > .main { background-color: #070f18; }
+    [data-testid="stSidebar"], [data-testid="stSidebarNav"] { display: none !important; }
+    header[data-testid="stHeader"] { background-color: #070f18; border-bottom: 1px solid #1a1a2e; }
+    .block-container { padding-top: 2rem; max-width: 1100px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Hero ──────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="text-align:center; padding: 40px 20px 10px;">
+        <div style="margin-bottom:22px;">
+            <span style="background:#1a1200;border:1px solid #b8960c;color:#d4aa30;
+                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
+                ● Gold XAU</span>
+            <span style="background:#111820;border:1px solid #708090;color:#a0b0be;
+                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
+                ● Silver XAG</span>
+            <span style="background:#160a24;border:1px solid #8b5cf6;color:#c4a0f0;
+                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
+                ● Platinum XPT</span>
+        </div>
+        <h1 style="font-size:3.6em;font-weight:900;margin:0 0 10px;
+            background:linear-gradient(135deg,#d4aa30,#f5d060,#b8960c);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            background-clip:text;line-height:1.1;">
+            APEX Metals AI</h1>
+        <p style="font-size:1.15em;color:#a0aec0;margin:0 0 8px;letter-spacing:0.05em;">
+            Analytical Precious Exchange Intelligence</p>
+        <p style="font-size:0.9em;color:#718096;max-width:600px;margin:0 auto 26px;line-height:1.7;">
+            Ensemble ML signal engine for Gold, Silver &amp; Platinum.
+            Regime-conditional models, Claude AI morning briefs,
+            multi-source live prices, and a full Decision Intelligence framework.
+            Personal research only — not financial advice.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _lp1, _lp2, _lp3 = st.columns([2, 1, 2])
+    with _lp2:
+        st.button(
+            "🚀 Launch Dashboard", type="primary", key="launch_btn",
+            use_container_width=True,
+            on_click=lambda: st.session_state.update({"show_dashboard": True}),
+        )
+
+    st.markdown("""
+    <p style="text-align:center;font-size:0.75em;color:#4a5568;margin:8px 0 16px;">
+        ⚠️ Personal research only · NOT financial advice · Past performance ≠ future results</p>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Stats bar ─────────────────────────────────────────────────────────────
+    _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+    _sc1.metric("Currencies", "9")
+    _sc2.metric("Model Accuracy", "36.0%")
+    _sc3.metric("ML Features", "118+")
+    _sc4.metric("Metals Covered", "3")
+
+    st.divider()
+
+    # ── Metals cards ──────────────────────────────────────────────────────────
+    _mc1, _mc2, _mc3 = st.columns(3)
+    with _mc1:
+        st.markdown("""
+        <div style="background:#110d00;border:1px solid #b8960c;border-radius:12px;padding:20px;height:240px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <span style="font-size:1.1em;font-weight:700;color:#d4aa30">🥇 Gold — XAU/USD</span>
+                <span style="background:#0a1a00;border:1px solid #22c55e;color:#22c55e;
+                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">● Live</span>
+            </div>
+            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
+                <li>Live spot — 4-tier waterfall</li>
+                <li>AI signal (UP/SIDEWAYS/DOWN)</li>
+                <li>LBMA + COMEX reference</li>
+                <li>Claude AI Morning Brief</li>
+                <li>9 currencies · Email alerts</li>
+            </ul>
+        </div>""", unsafe_allow_html=True)
+    with _mc2:
+        st.markdown("""
+        <div style="background:#0d1218;border:1px solid #708090;border-radius:12px;padding:20px;height:240px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <span style="font-size:1.1em;font-weight:700;color:#a0b0be">🥈 Silver — XAG/USD</span>
+                <span style="background:#1a1200;border:1px solid #f59e0b;color:#f59e0b;
+                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">Phase 6</span>
+            </div>
+            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
+                <li>Live spot price</li>
+                <li>AI signal model</li>
+                <li>Gold/Silver ratio</li>
+                <li>Portfolio tracker</li>
+                <li>Multi-metal chart · 9 currencies</li>
+            </ul>
+        </div>""", unsafe_allow_html=True)
+    with _mc3:
+        st.markdown("""
+        <div style="background:#110a1e;border:1px solid #8b5cf6;border-radius:12px;padding:20px;height:240px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <span style="font-size:1.1em;font-weight:700;color:#c4a0f0">💎 Platinum — XPT/USD</span>
+                <span style="background:#1a1200;border:1px solid #f59e0b;color:#f59e0b;
+                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">Phase 6</span>
+            </div>
+            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
+                <li>Live spot price</li>
+                <li>AI signal model</li>
+                <li>Platinum/Gold spread</li>
+                <li>Portfolio tracker</li>
+                <li>Multi-metal chart · 9 currencies</li>
+            </ul>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Features grid ─────────────────────────────────────────────────────────
+    st.markdown("<h3 style='color:#d4aa30;text-align:center;margin-bottom:16px'>Platform Features</h3>",
+                unsafe_allow_html=True)
+    _features = [
+        ("📡", "Live Multi-Source Prices", "4-tier waterfall: metals.live · Alpha Vantage · Twelve Data · yfinance"),
+        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost stacking with Optuna hyperparameter tuning"),
+        ("🌅", "Claude AI Morning Brief", "Daily XAU/USD market analysis powered by Claude claude-sonnet-4-6"),
+        ("🏛️", "LBMA & COMEX Reference", "London Bullion Market Association + COMEX GC=F futures benchmarks"),
+        ("📧", "Email Alert System", "Signal alerts once/day · Risk alerts 4h cooldown · Gmail SMTP"),
+        ("📊", "Backtesting & Validation", "Walk-forward validation · Regime breakdown · Benchmark comparison"),
+    ]
+    _fg1, _fg2, _fg3 = st.columns(3)
+    for _i, (_icon, _ftitle, _fdesc) in enumerate(_features):
+        _fcol = [_fg1, _fg2, _fg3][_i % 3]
+        _fcol.markdown(f"""
+        <div style="background:#0d1218;border:1px solid #1e2130;border-radius:10px;
+            padding:16px;margin-bottom:10px;text-align:center;">
+            <div style="font-size:1.8em">{_icon}</div>
+            <div style="font-weight:700;color:#e2e8f0;margin:6px 0 4px;font-size:0.95em">{_ftitle}</div>
+            <div style="font-size:0.78em;color:#718096;line-height:1.4">{_fdesc}</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Model performance ─────────────────────────────────────────────────────
+    st.markdown("<h3 style='color:#d4aa30'>📈 Model Performance — Gold v1 Baseline</h3>",
+                unsafe_allow_html=True)
+    _mp1, _mp2, _mp3, _mp4 = st.columns(4)
+    _mp1.metric("Overall Accuracy", "36.0%", "+4.5pp vs random")
+    _mp2.metric("Directional Accuracy", "41.1%", "+20pp uplift")
+    _mp3.metric("DOWN Accuracy", "55.6%", "10× uplift")
+    _mp4.metric("Predictions Logged", "322")
+
+    st.divider()
+
+    # ── Roadmap ───────────────────────────────────────────────────────────────
+    st.markdown("<h3 style='color:#d4aa30'>🗺️ Platform Roadmap</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="font-size:0.95em;line-height:2.3;color:#e2e8f0;">
+        ✅ <b>Phases 1–5:</b> Core platform complete and live<br>
+        🔄 <b>Phase 6A:</b> Model upgrade — regime-conditional + macro features<br>
+        🔄 <b>Phase 6B:</b> Silver &amp; Platinum expansion<br>
+        🔄 <b>Phase 6C:</b> Decision Intelligence Centre<br>
+        🔄 <b>Phase 6D:</b> KPI Command Centre
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <p style="text-align:center;color:#4a5568;font-size:0.85em;padding:10px 0 30px;">
+        🏅 APEX Metals AI · Built by Hadi · Powered by Claude AI · Streamlit Cloud
+    </p>
+    """, unsafe_allow_html=True)
+
+
 # ── Session state ──────────────────────────────────────────────────────────────
 _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
          "stack_reg", "stack_clf", "backtest_results", "benchmark_results",
@@ -93,6 +353,19 @@ _KEYS = ("df", "macro_df", "reg_results", "clf_results", "feature_cols",
 for k in _KEYS:
     if k not in st.session_state:
         st.session_state[k] = None if k != "refresh_key" else 0
+
+if "show_dashboard" not in st.session_state:
+    st.session_state.show_dashboard = False
+if "selected_metal" not in st.session_state:
+    st.session_state.selected_metal = "🥇 Gold (XAU)"
+for _mk in ("silver_metal_bundle", "platinum_metal_bundle",
+            "silver_signal", "platinum_signal"):
+    if _mk not in st.session_state:
+        st.session_state[_mk] = None
+
+if not st.session_state.show_dashboard:
+    show_landing_page()
+    st.stop()
 
 # ── Cached data loader ─────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600, show_spinner="Downloading market data…")
@@ -119,9 +392,29 @@ def _load_lbma_fix() -> dict:
 def _load_fx_rates() -> dict:
     return get_fx_rates()
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_silver_price(av_key: str) -> tuple:
+    from src.data_loader import get_silver_price
+    return get_silver_price(av_key)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_platinum_price() -> tuple:
+    from src.data_loader import get_platinum_price
+    return get_platinum_price()
+
+@st.cache_data(ttl=3600, show_spinner="Loading metal data…")
+def _load_metal_data(ticker: str, refresh_key: int) -> pd.DataFrame:
+    from src.data_loader import download_metal_ohlcv
+    from src.features import add_features, classify_regime
+    raw = download_metal_ohlcv(ticker, years=2)
+    if raw.empty:
+        return raw
+    df = add_features(raw)
+    return classify_regime(df)
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("🥇 Gold AI Decision Intelligence")
+    st.title("🏅 APEX Metals AI")
     st.caption("NOT FINANCIAL ADVICE")
     st.divider()
 
@@ -129,6 +422,21 @@ with st.sidebar:
     refresh_btn   = col_r.button("🔄 Refresh",     width="stretch")
     train_btn     = col_t.button("🚀 Train",        width="stretch", type="primary")
     auto_retrain_btn = st.button("⚡ Auto-Retrain (fast, no Optuna)", width="stretch")
+
+    st.divider()
+    st.caption("Metal Models (6B)")
+    _smb = st.session_state.get("silver_metal_bundle")
+    _pmb = st.session_state.get("platinum_metal_bundle")
+    _sv_lbl = f"🥈 Retrain Silver" if _smb else "🥈 Train Silver Model"
+    _pt_lbl = f"💎 Retrain Platinum" if _pmb else "💎 Train Platinum Model"
+    train_silver_btn   = st.button(_sv_lbl,   width="stretch")
+    train_platinum_btn = st.button(_pt_lbl,   width="stretch")
+    if _smb:
+        st.caption(f"Silver trained {_smb.get('trained_at','')[:10]} · "
+                   f"{_smb.get('overall_acc',0):.1%}")
+    if _pmb:
+        st.caption(f"Platinum trained {_pmb.get('trained_at','')[:10]} · "
+                   f"{_pmb.get('overall_acc',0):.1%}")
 
     st.divider()
     fred_key = st.text_input(
@@ -190,10 +498,23 @@ if st.session_state.reg_results is None:
     if st.session_state.last_retrain_bar_date is None:
         st.session_state.last_retrain_bar_date = _cur_bar_date
 
+# Auto-load Silver / Platinum models if not yet in session state
+if (st.session_state.silver_metal_bundle is None
+        or st.session_state.platinum_metal_bundle is None):
+    try:
+        from src.train import load_metal_models as _lmm
+        _mtl = _lmm()
+        if "silver"   in _mtl and st.session_state.silver_metal_bundle is None:
+            st.session_state.silver_metal_bundle   = _mtl["silver"]
+        if "platinum" in _mtl and st.session_state.platinum_metal_bundle is None:
+            st.session_state.platinum_metal_bundle = _mtl["platinum"]
+    except Exception:
+        pass
+
 # ── Training flow ──────────────────────────────────────────────────────────────
 if train_btn:
     train_df, test_df = get_train_test_split(df)
-    with st.status("Training Gold AI Decision Intelligence… (15–30 min first run)", expanded=True) as status:
+    with st.status("Training APEX Metals AI… (15–30 min first run)", expanded=True) as status:
         log_box = st.empty()
         msgs: list[str] = []
 
@@ -315,6 +636,58 @@ if (auto_retrain_btn or _new_bar) and _hp_available:
 elif auto_retrain_btn and not _hp_available:
     st.sidebar.warning("Auto-retrain requires a trained model with saved hyperparams. Run full Train first.")
 
+# ── Silver model training ─────────────────────────────────────────────────────
+if train_silver_btn:
+    with st.status("🥈 Training Silver model…", expanded=True) as _sv_status:
+        _sv_lbx = st.empty()
+        _sv_msgs: list[str] = []
+        def _sv_log(msg: str):
+            _sv_msgs.append(msg)
+            _sv_lbx.markdown("\n".join(f"• {m}" for m in _sv_msgs[-25:]))
+        try:
+            from src.train import train_metal_model as _tmt, save_metal_models as _smt, load_metal_models as _lmt
+            _sv_bnd = _tmt("SI=F", "Silver", progress_callback=_sv_log)
+            if _sv_bnd:
+                _ex_m = _lmt(); _ex_m["silver"] = _sv_bnd; _smt(_ex_m)
+                st.session_state.silver_metal_bundle = _sv_bnd
+                st.session_state.silver_signal = None
+                _sv_status.update(
+                    label=f"✅ Silver trained! Overall {_sv_bnd['overall_acc']:.1%} accuracy",
+                    state="complete")
+                st.rerun()
+            else:
+                _sv_status.update(label="❌ Silver training failed — check data", state="error")
+        except Exception as _sv_exc:
+            import traceback as _tb
+            _sv_status.update(label=f"❌ {_sv_exc}", state="error")
+            st.error(_tb.format_exc())
+
+# ── Platinum model training ───────────────────────────────────────────────────
+if train_platinum_btn:
+    with st.status("💎 Training Platinum model…", expanded=True) as _pt_status:
+        _pt_lbx = st.empty()
+        _pt_msgs: list[str] = []
+        def _pt_log(msg: str):
+            _pt_msgs.append(msg)
+            _pt_lbx.markdown("\n".join(f"• {m}" for m in _pt_msgs[-25:]))
+        try:
+            from src.train import train_metal_model as _tmt2, save_metal_models as _smt2, load_metal_models as _lmt2
+            _pt_bnd = _tmt2("PL=F", "Platinum", progress_callback=_pt_log)
+            if _pt_bnd:
+                _ex_m2 = _lmt2(); _ex_m2["platinum"] = _pt_bnd; _smt2(_ex_m2)
+                st.session_state.platinum_metal_bundle = _pt_bnd
+                st.session_state.platinum_signal = None
+                _pt_status.update(
+                    label=f"✅ Platinum trained! Overall {_pt_bnd['overall_acc']:.1%} accuracy",
+                    state="complete")
+                st.rerun()
+            else:
+                _pt_status.update(label="❌ Platinum training failed — check data", state="error")
+        except Exception as _pt_exc:
+            import traceback as _tb2
+            _pt_status.update(label=f"❌ {_pt_exc}", state="error")
+            st.error(_tb2.format_exc())
+
 # ── Auto-generate signal + regime if models loaded but signal missing ──────────
 if st.session_state.reg_results is not None:
     if st.session_state.regime_info is None:
@@ -409,8 +782,208 @@ if _ra_eligible and df is not None:
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("🥇 Gold AI Decision Intelligence — Dashboard")
+if st.button("← Back to overview", key="back_btn"):
+    st.session_state.show_dashboard = False
+    st.rerun()
+
+st.title("🏅 APEX Metals AI — Decision Intelligence")
 st.caption("⚠️ Personal research only · NOT financial advice · Past performance does not guarantee future results")
+
+# ── Metal selector ────────────────────────────────────────────────────────────
+selected_metal = st.radio(
+    "Select Metal",
+    ["🥇 Gold (XAU)", "🥈 Silver (XAG)", "💎 Platinum (XPT)"],
+    horizontal=True,
+    key="metal_selector",
+)
+st.session_state.selected_metal = selected_metal
+
+# ── Silver / Platinum — 6A price display + 6B signal ──────────────────────────
+if selected_metal != "🥇 Gold (XAU)":
+    _is_silver   = (selected_metal == "🥈 Silver (XAG)")
+    _met_ticker  = "SI=F"  if _is_silver else "PL=F"
+    _met_name    = "Silver" if _is_silver else "Platinum"
+    _met_lbl     = "Silver (XAG/USD)" if _is_silver else "Platinum (XPT/USD)"
+    _met_color   = "#a0b0be" if _is_silver else "#c4a0f0"
+    _met_bnd_key = "silver_metal_bundle"  if _is_silver else "platinum_metal_bundle"
+    _met_sig_key = "silver_signal"        if _is_silver else "platinum_signal"
+
+    # ── Currency selector ─────────────────────────────────────────────────────
+    _CCY_LIST_M = ["AED 🇦🇪", "USD 🇺🇸", "JOD 🇯🇴", "GBP 🇬🇧", "EUR 🇪🇺",
+                   "SAR 🇸🇦", "INR 🇮🇳", "JPY 🇯🇵", "CNY 🇨🇳"]
+    _CCY_SYMS_M = {"USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥"}
+    _PEGGED_M   = {"USD", "AED", "JOD", "SAR"}
+    _ccy_m_full = st.selectbox("Currency", _CCY_LIST_M, index=0,
+                               key="ccy_selector", label_visibility="collapsed")
+    _sel_ccy_m  = _ccy_m_full[:3]
+    _fx_data_m  = _load_fx_rates()
+    _fx_rates_m = _fx_data_m.get("rates", {"USD": 1.0, "AED": 3.6725})
+    _rate_m     = _fx_rates_m.get(_sel_ccy_m, 1.0)
+    _sym_m      = _CCY_SYMS_M.get(_sel_ccy_m, "")
+
+    _av_key_m = st.secrets.get("ALPHA_VANTAGE_API_KEY", av_key_input)
+
+    # ── Live price (waterfall) ────────────────────────────────────────────────
+    _met_price, _met_src = None, "unavailable"
+    try:
+        if _is_silver:
+            _met_price, _met_src = _load_silver_price(_av_key_m)
+        else:
+            _met_price, _met_src = _load_platinum_price()
+    except Exception:
+        pass
+
+    # Gold price (for ratio / spread) — use last bar from gold df
+    _gold_ref = float(df["Close"].iloc[-1])
+
+    # ── Price formatting ──────────────────────────────────────────────────────
+    if _met_price:
+        _met_ccy = _met_price * _rate_m
+        if _sel_ccy_m == "JPY":
+            _met_disp = f"{_sym_m}{_met_ccy:,.0f}"
+        elif _sym_m:
+            _met_disp = f"{_sym_m}{_met_ccy:,.2f}"
+        else:
+            _met_disp = f"{_sel_ccy_m} {_met_ccy:,.2f}"
+        _met_usd_cap = None if _sel_ccy_m == "USD" else f"USD ${_met_price:,.2f}"
+    else:
+        _met_disp   = "—"
+        _met_usd_cap = None
+
+    # ── KPI row ───────────────────────────────────────────────────────────────
+    _mki1, _mki2, _mki3, _mki4 = st.columns(4)
+
+    _mki1.metric(_met_lbl, _met_disp, delta=_met_usd_cap, delta_color="off")
+    _mki1.caption(f"📡 {_met_src}")
+
+    if _is_silver and _met_price and _gold_ref:
+        _gsr = _gold_ref / _met_price
+        _gsr_flag = ("⬆️ Silver historically cheap" if _gsr > 80
+                     else "⬇️ Gold historically cheap" if _gsr < 50 else "")
+        _mki2.metric("Gold/Silver Ratio", f"{_gsr:.1f}",
+                     delta=_gsr_flag or "Historical avg: ~65", delta_color="off")
+        _mki2.caption("GSR > 80 = silver cheap historically · GSR < 50 = gold cheap")
+    elif not _is_silver and _met_price and _gold_ref:
+        _ptg = _gold_ref - _met_price
+        _mki2.metric("Gold Premium vs Platinum", f"${_ptg:,.0f}",
+                     delta="Normally platinum > gold (inverted)", delta_color="off")
+
+    # Signal card (populated below after model check)
+    _met_bnd = st.session_state.get(_met_bnd_key)
+    _met_sig = st.session_state.get(_met_sig_key)
+
+    # Auto-generate signal if model loaded but signal missing
+    if _met_bnd is not None and _met_sig is None:
+        try:
+            _mdf_inf = _load_metal_data(_met_ticker, st.session_state.refresh_key)
+            if not _mdf_inf.empty:
+                from src.signals import generate_latest_signal as _gls_m
+                from src.regime import get_current_regime as _gcr_m
+                _mri   = _gcr_m(_mdf_inf)
+                _msig  = _gls_m(
+                    _mdf_inf,
+                    _met_bnd["reg_results"],
+                    _met_bnd["clf_results"],
+                    _met_bnd["feature_cols"],
+                    stack_reg  = _met_bnd.get("stack_reg"),
+                    stack_clf  = _met_bnd.get("stack_clf"),
+                    regime_int = (_mri or {}).get("regime_int", 5),
+                )
+                st.session_state[_met_sig_key] = _msig
+                _met_sig = _msig
+        except Exception:
+            pass
+
+    if _met_sig:
+        _ms_clr  = _met_sig["signal_color"]
+        _ms_lbl  = _met_sig["signal_label"]
+        _ms_emi  = _met_sig["signal_emoji"]
+        _ms_conf = _met_sig.get("confidence_pct", 0)
+        _mki3.markdown(
+            f"""<div style="border:2px solid {_ms_clr};border-radius:10px;
+                padding:12px;text-align:center;height:80px">
+                <div style="font-size:0.72em;color:#aaa;margin-bottom:4px">Signal (next day)</div>
+                <div style="font-size:1.8em;font-weight:bold;color:{_ms_clr}">
+                    {_ms_emi} {_ms_lbl}</div></div>""",
+            unsafe_allow_html=True,
+        )
+        _mki4.metric("Confidence", f"{_ms_conf:.1f}%")
+    else:
+        _mki3.markdown(
+            f"""<div style="border:2px dashed {_met_color};border-radius:10px;
+                padding:12px;text-align:center;height:80px">
+                <div style="font-size:0.72em;color:#aaa;margin-bottom:4px">Signal</div>
+                <div style="font-size:0.88em;color:#888">
+                    {"Training…" if _met_bnd else "Train model"}</div></div>""",
+            unsafe_allow_html=True,
+        )
+        _mki4.metric("Confidence", "—")
+
+    # ── 90-day OHLC chart ─────────────────────────────────────────────────────
+    st.divider()
+    st.subheader(f"{_met_name} Price — Last 90 Days")
+    try:
+        _mdf_c = _load_metal_data(_met_ticker, st.session_state.refresh_key)
+        if not _mdf_c.empty:
+            _mrec = _mdf_c.tail(90)
+            _mfig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                  row_heights=[0.78, 0.22], vertical_spacing=0.03)
+            _mfig.add_trace(go.Candlestick(
+                x=_mrec.index,
+                open=_mrec["Open"], high=_mrec["High"],
+                low=_mrec["Low"],  close=_mrec["Close"],
+                name="OHLC",
+                increasing_line_color="#00CC88",
+                decreasing_line_color="#FF4B4B",
+            ), row=1, col=1)
+            for _slbl, _scol, _sclr in [("SMA 20", "SMA_20", "#FFA500"),
+                                         ("SMA 50", "SMA_50", "#00BFFF")]:
+                if _scol in _mrec.columns:
+                    _mfig.add_trace(go.Scatter(
+                        x=_mrec.index, y=_mrec[_scol],
+                        name=_slbl, line=dict(color=_sclr, width=1.2),
+                    ), row=1, col=1)
+            if "Volume" in _mrec.columns:
+                _mfig.add_trace(go.Bar(
+                    x=_mrec.index, y=_mrec["Volume"],
+                    name="Volume", marker_color="rgba(150,150,200,0.35)",
+                    showlegend=False,
+                ), row=2, col=1)
+            _mfig.update_layout(**_PLT, height=440,
+                                xaxis_rangeslider_visible=False,
+                                legend=dict(orientation="h", y=1.02))
+            _mfig.update_xaxes(showgrid=False)
+            _mfig.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
+            st.plotly_chart(_mfig, width="stretch")
+        else:
+            st.warning(f"Could not load {_met_name} historical data for chart.")
+    except Exception as _mce:
+        st.warning(f"Chart unavailable: {_mce}")
+
+    # ── Model status / training CTA ───────────────────────────────────────────
+    if _met_bnd:
+        _oa  = _met_bnd.get("overall_acc", 0)
+        _pc  = _met_bnd.get("per_class_acc", {})
+        _tat = _met_bnd.get("trained_at", "")[:10]
+        st.success(
+            f"✅ {_met_name} model trained {_tat} — "
+            f"Overall {_oa:.1%} | "
+            + " | ".join(f"{l}: {p:.1%}" for l, p in _pc.items())
+        )
+        st.caption(
+            f"Trained on {_met_bnd['n_train']} bars, evaluated on {_met_bnd['n_test']} bars. "
+            "Retrain via sidebar if you want to refresh."
+        )
+    else:
+        st.info(
+            f"**{_met_name} signal model not yet trained.**  \n"
+            f"Click **{'🥈 Train Silver Model' if _is_silver else '💎 Train Platinum Model'}** "
+            f"in the sidebar. Training takes ~5 minutes."
+        )
+
+    st.caption("⚠️ Personal research only — NOT financial advice · "
+               "Full dashboard (Morning Brief, DIC, portfolio) in Phase 6C")
+    st.stop()
 
 # ── KPI row ───────────────────────────────────────────────────────────────────
 _td_key  = st.secrets.get("TWELVE_DATA_API_KEY", os.environ.get("TWELVE_DATA_API_KEY", ""))
@@ -647,6 +1220,50 @@ with st.expander("🔍 Data Sources & Integrity", expanded=False):
 
     st.divider()
 
+    # ── Feature drift detection (4E) ──────────────────────────────────────────
+    st.markdown("**Feature Drift Monitor**")
+    try:
+        import json as _dj
+        from src.features import detect_feature_drift as _dfd
+        _stats_path_ds = os.path.join(DATA_DIR, "training_stats.json") if "DATA_DIR" in dir() else ""
+        _drift_score_val, _drift_list = 0.0, []
+        _ts_path = os.path.join(DATA_DIR, "training_stats.json")
+        if os.path.exists(_ts_path):
+            with open(_ts_path) as _tsf:
+                _train_stats = _dj.load(_tsf)
+            _live_feat_vals = {col: float(df[col].iloc[-1])
+                               for col in st.session_state.feature_cols or []
+                               if col in df.columns}
+            _drift_score_val, _drift_list = _dfd(_live_feat_vals, _train_stats)
+
+            if _drift_score_val < 0.2:
+                _drift_clr, _drift_icon, _drift_lbl = "#22c55e", "🟢", "Normal"
+            elif _drift_score_val < 0.5:
+                _drift_clr, _drift_icon, _drift_lbl = "#f59e0b", "🟡", "Monitor"
+            else:
+                _drift_clr, _drift_icon, _drift_lbl = "#ef4444", "🔴", "High Drift"
+
+            st.markdown(
+                f'<span style="color:{_drift_clr};font-weight:600">'
+                f'{_drift_icon} Drift score: {_drift_score_val:.2f} — {_drift_lbl}'
+                f'</span>',
+                unsafe_allow_html=True,
+            )
+            if _drift_list:
+                st.caption(
+                    f"{len(_drift_list)} features with z-score >3.0: "
+                    + ", ".join(d["feature"] for d in _drift_list[:5])
+                    + ("…" if len(_drift_list) > 5 else "")
+                )
+            else:
+                st.caption("No features significantly outside training distribution (z<3).")
+        else:
+            st.caption("Drift stats not available — retrain the model to generate them.")
+    except Exception:
+        st.caption("Drift monitor unavailable.")
+
+    st.divider()
+
     # ── Data integrity statement ──────────────────────────────────────────────
     st.info(
         "**Data Integrity Statement**  \n"
@@ -867,6 +1484,163 @@ if signal:
         """,
         unsafe_allow_html=True,
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5 — DECISION INTELLIGENCE CENTRE (Gold only)
+# ══════════════════════════════════════════════════════════════════════════════
+if signal and selected_metal == "🥇 Gold (XAU)":
+    st.divider()
+    st.subheader("🎯 Decision Intelligence Centre")
+
+    # ── Compute inputs ────────────────────────────────────────────────────────
+    _dic_conf    = (signal.get("confidence_pct") or 50) / 100
+    _dic_sig     = signal["signal_label"]
+    _dic_atr_val = float(df["ATR"].iloc[-1])    if "ATR"     in df.columns else cur * 0.01
+    _dic_rsi     = float(df["RSI"].iloc[-1])    if "RSI"     in df.columns else 50.0
+    _dic_bb_pctb = float(df["BB_PctB"].iloc[-1]) if "BB_PctB" in df.columns else 0.5
+
+    _dic_regime_lbl = (regime_info or {}).get("regime_label", "")
+    if "vol" in _dic_regime_lbl.lower() or "high" in _dic_regime_lbl.lower():
+        _dic_regime = "high_vol"
+    elif "trend" in _dic_regime_lbl.lower():
+        _dic_regime = "trending"
+    else:
+        _dic_regime = "neutral"
+
+    # Rolling 30-day accuracy — track source so reason text is accurate
+    _dic_roll_acc    = 0.35
+    _dic_roll_source = "default"
+    _ev_r = st.session_state.bt_eval_results
+    if _ev_r is not None:
+        _ev_arr = (np.array(_ev_r["y_true"]) == np.array(_ev_r["preds"])).astype(int)
+        if len(_ev_arr) >= 5:
+            _dic_roll_acc    = float(_ev_arr[-30:].mean())
+            _dic_roll_source = "oos"
+    elif st.session_state.clf_results is not None:
+        _stk_dic = (st.session_state.clf_results or {}).get("Stacking", {})
+        _sy, _sp = _stk_dic.get("y_test"), _stk_dic.get("predictions")
+        if _sy is not None and _sp is not None:
+            _bt_arr = (np.array(_sy) == np.array(_sp)).astype(int)
+            if len(_bt_arr) >= 5:
+                _dic_roll_acc    = float(_bt_arr[-30:].mean())
+                _dic_roll_source = "test"
+
+    # No-trade score (0–5 active conditions)
+    _dic_nt = 0
+    if _dic_conf < 0.50:                          _dic_nt += 1
+    if signal.get("filter_reason"):               _dic_nt += 1
+    if _dic_sig == "UP"   and _dic_rsi > 75:      _dic_nt += 1
+    if _dic_sig == "DOWN" and _dic_rsi < 25:      _dic_nt += 1
+    if _dic_bb_pctb > 0.9 or _dic_bb_pctb < 0.1: _dic_nt += 1
+
+    # Classifier consensus — get per-model votes on latest bar
+    _dic_votes     = {}
+    _dic_consensus = 1.0
+    if models_ok:
+        try:
+            _fc_dic = st.session_state.feature_cols or []
+            _X_dic  = df.dropna(subset=_fc_dic).iloc[[-1]][_fc_dic].values
+            for _mn_dic in ["XGBoost", "LightGBM", "CatBoost"]:
+                _mdl_dic = (st.session_state.clf_results or {}).get(_mn_dic, {}).get("model")
+                if _mdl_dic is not None:
+                    try:
+                        _dic_votes[_mn_dic] = int(
+                            np.array(_mdl_dic.predict(_X_dic)).ravel()[0])
+                    except Exception:
+                        pass
+            if _dic_votes:
+                _dic_n_agree   = sum(1 for v in _dic_votes.values()
+                                     if v == signal["signal_int"])
+                _dic_consensus = _dic_n_agree / len(_dic_votes)
+        except Exception:
+            pass
+
+    # ── 5A: Daily Decision Verdict ────────────────────────────────────────────
+    _dic_roll_label = {"oos": "OOS eval", "test": "test set"}.get(_dic_roll_source, "")
+    _verdict, _v_emoji, _v_color, _v_for, _v_against = compute_decision_verdict(
+        signal=_dic_sig, confidence=_dic_conf, regime=_dic_regime,
+        rsi=_dic_rsi, bb_pctb=_dic_bb_pctb,
+        rolling_accuracy=_dic_roll_acc, no_trade_score=_dic_nt,
+        classifier_consensus=_dic_consensus,
+        roll_source=_dic_roll_label,
+    )
+
+    _v_bg = {"#22c55e": "#071507", "#f59e0b": "#161000", "#ef4444": "#160707"}
+    st.markdown(
+        f"""<div style="border:2px solid {_v_color};border-radius:14px;
+            padding:20px 24px;margin:8px 0 16px;
+            background:{_v_bg.get(_v_color, '#0d1218')};">
+            <div style="font-size:2.4em;font-weight:900;color:{_v_color};
+                margin-bottom:4px">{_v_emoji}&nbsp;{_verdict}</div>
+            <div style="font-size:0.8em;color:#888;font-style:italic">
+                Research framework only — not financial advice</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    _vc1, _vc2 = st.columns(2)
+    with _vc1:
+        st.markdown("**Supporting factors**")
+        for _r in _v_for:
+            st.markdown(f"✅ {_r}")
+        if not _v_for:
+            st.caption("*No strong supporting factors identified*")
+    with _vc2:
+        st.markdown("**Caution factors**")
+        for _r in _v_against:
+            st.markdown(f"⚠️ {_r}")
+        if not _v_against:
+            st.caption("*No caution factors identified*")
+
+    # ── 5B: ATR Research Zones ────────────────────────────────────────────────
+    if _dic_sig in ("UP", "DOWN"):
+        st.markdown("**📐 ATR Research Zones**")
+        _zones = compute_trade_zones(cur, _dic_sig, _dic_atr_val)
+        if _zones:
+            _z1, _z2, _z3, _z4 = st.columns(4)
+            _z1.metric("Entry Zone", _zones["entry"])
+            _z2.metric("Target",     _zones["target"])
+            _z3.metric("Stop",       _zones["stop"])
+            _z4.metric("R:R Ratio",  _zones["rr"], delta=f"ATR {_zones['atr']}")
+            st.caption(
+                "⚠️ Research zones are ATR-based estimates for analytical framework "
+                "purposes only. They do not constitute financial advice or trading "
+                "recommendations."
+            )
+
+    # ── 5C: Classifier Consensus ──────────────────────────────────────────────
+    st.markdown("**🗳️ Classifier Consensus**")
+    if _dic_votes:
+        _n_mdls     = len(_dic_votes)
+        _pill_cols  = st.columns(_n_mdls + 1)
+        for _pi, (_mn_p, _mv_p) in enumerate(_dic_votes.items()):
+            _mlbl = SIGNAL_LABELS.get(_mv_p, "?")
+            _mclr = SIGNAL_COLORS.get(_mv_p, "#888")
+            _pill_cols[_pi].markdown(
+                f"<div style='text-align:center;background:#0d1218;"
+                f"border:1px solid {_mclr};border-radius:8px;padding:10px 4px;'>"
+                f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>{_mn_p}</div>"
+                f"<div style='font-weight:700;color:{_mclr};font-size:1.1em'>{_mlbl}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        _dic_n_agree2 = sum(1 for v in _dic_votes.values() if v == signal["signal_int"])
+        if _dic_n_agree2 == _n_mdls:
+            _cons_txt, _cons_clr = f"{_dic_n_agree2}/{_n_mdls} unanimous ✅", "#22c55e"
+        elif _dic_n_agree2 >= 2:
+            _cons_txt, _cons_clr = f"{_dic_n_agree2}/{_n_mdls} majority ⚠️", "#f59e0b"
+        else:
+            _cons_txt, _cons_clr = f"{_dic_n_agree2}/{_n_mdls} split ⚠️",    "#ef4444"
+        _pill_cols[-1].markdown(
+            f"<div style='text-align:center;background:#0d1218;"
+            f"border:1px solid {_cons_clr};border-radius:8px;padding:10px 4px;'>"
+            f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>Consensus</div>"
+            f"<div style='font-weight:700;color:{_cons_clr}'>{_cons_txt}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("Train the model to see individual classifier votes.")
 
 # ── 🧠 AI Signal Explanation ──────────────────────────────────────────────────
 if signal and _signal_data_for_api:

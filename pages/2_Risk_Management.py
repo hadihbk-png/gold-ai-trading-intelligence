@@ -1,5 +1,5 @@
 """
-Gold AI — Risk Management Calculator
+APEX Metals AI — Risk Management Calculator
 """
 import os, sys, warnings
 import numpy as np
@@ -18,7 +18,7 @@ from src.features import add_features
 from src.macro_loader import add_macro_features
 
 st.set_page_config(
-    page_title="Gold AI Decision Intelligence — Risk Management",
+    page_title="APEX Metals AI — Risk Management",
     page_icon="🛡️",
     layout="wide",
 )

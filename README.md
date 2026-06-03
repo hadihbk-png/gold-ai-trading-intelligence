@@ -1,8 +1,8 @@
-# Gold AI Decision Intelligence Platform
+# APEX Metals AI
 
-A multi-page Streamlit app for gold (XAU/USD) directional trading intelligence — ML ensemble signals, walk-forward validation, risk management, and live backtesting. Built for personal research, not financial advice.
+A multi-page Streamlit app for precious metals (XAU, XAG, XPT) directional trading intelligence — ML ensemble signals, walk-forward validation, risk management, and live backtesting. Built for personal research, not financial advice.
 
-**[Live App →](https://gold-ai-trading-intelligence.streamlit.app/)**
+**[Live App →](https://apex-metals-ai.streamlit.app/)**
 
 ---
 
@@ -34,6 +34,22 @@ A multi-page Streamlit app for gold (XAU/USD) directional trading intelligence �
 - Auto-retrain on stale model artifacts (Streamlit Cloud compatible, target <50s)
 - Full backtesting panel with regime breakdown, directional accuracy, and benchmark comparison
 
+### Phase 4 — Data Integrity & Claude AI
+- Multi-source price waterfall: metals.live / Alpha Vantage / Twelve Data / yfinance
+- LBMA GLD proxy and COMEX GC=F references
+- Multi-currency display (AED default, 9 currencies)
+- Transparency panel: data sources, variance analysis, market hours, FX rates
+- Claude AI Morning Brief and signal explanation (claude-sonnet-4-6)
+
+### Phase 6 — APEX Metals AI Expansion (in progress)
+- Landing page with platform overview
+- Silver (XAG/USD) and Platinum (XPT/USD) signal models
+- Multi-metal comparison panel and portfolio tracker
+- Decision Intelligence Centre: GO/CAUTION/NO-TRADE verdict
+- ATR-based research zones
+- SHAP transparency layer
+- KPI Command Centre with audit trail
+
 ---
 
 ## Pages
@@ -57,6 +73,7 @@ A multi-page Streamlit app for gold (XAU/USD) directional trading intelligence �
 | Data | yfinance, fredapi, pandas, numpy |
 | Calibration / metrics | scikit-learn, imbalanced-learn, scipy |
 | Charts | Plotly |
+| AI | Anthropic Claude API (claude-sonnet-4-6) |
 | Alerts | Gmail SMTP (smtplib) |
 
 ---
@@ -74,6 +91,7 @@ Optional — add to `.streamlit/secrets.toml`:
 FRED_API_KEY   = "your_fred_key"       # macro features (FRED)
 NEWSAPI_KEY    = "your_newsapi_key"    # sentiment (optional)
 TWELVE_DATA_API_KEY = "your_td_key"   # live spot price
+ANTHROPIC_API_KEY = "your_key"        # Claude AI morning brief
 email_sender   = "you@gmail.com"
 email_password = "app_password"
 email_recipient = "you@gmail.com"

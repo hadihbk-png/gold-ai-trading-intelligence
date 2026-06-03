@@ -1,4 +1,4 @@
-# Gold AI — Bug Fix Log
+# APEX Metals AI — Bug Fix Log
 
 UI and reporting clarity fixes only. No model logic, retraining, model artifacts,
 Dashboard, or Risk Management files were changed.

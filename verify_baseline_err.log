@@ -1,0 +1,2 @@
+2026-05-29 11:51:58.740 Uvicorn server started on 0.0.0.0:8502
+2026-05-29 15:50:54.791 An update to the [server] config option section was detected. To have these changes be reflected, please restart streamlit.

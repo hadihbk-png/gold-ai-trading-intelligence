@@ -1,5 +1,5 @@
 """
-Gold AI - Live Forward Validation
+APEX Metals AI - Live Forward Validation
 
 Captures one prediction snapshot per market date and scores it once the next
 gold close is available. This page does not train or alter model logic.
@@ -26,7 +26,7 @@ from src.signals import generate_latest_signal
 from src.train import load_models
 
 st.set_page_config(
-    page_title="Gold AI Decision Intelligence — Live Validation",
+    page_title="APEX Metals AI — Live Validation",
     page_icon="OK",
     layout="wide",
 )

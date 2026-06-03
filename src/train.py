@@ -34,6 +34,9 @@ from src.ensemble import (
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 warnings.filterwarnings("ignore")
 
+import json
+from datetime import datetime as _dt
+
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
@@ -278,6 +281,7 @@ def train_all_models(
     progress_callback=None,
     pretrained_hyperparams: dict | None = None,
     fast_retrain: bool = False,
+    sideways_weight_boost: float = 1.30,
 ):
     """
     Full training pipeline including Optuna tuning and stacking ensemble.
@@ -338,10 +342,10 @@ def train_all_models(
     weights   = compute_class_weight("balanced", classes=classes, y=ytr_c)
     cw_dict   = dict(zip(classes.astype(int), weights))
 
-    # Phase 4A: increase SIDEWAYS (class=1) misclassification penalty by 30%
-    # to discourage the model from defaulting to the most-frequent neutral class.
-    if 1 in cw_dict:
-        cw_dict[1] = cw_dict[1] * 1.30
+    # Configurable SIDEWAYS penalty boost (default 1.30 = 30% extra weight).
+    # Pass sideways_weight_boost=1.0 to disable when DOWN recall is the priority.
+    if 1 in cw_dict and sideways_weight_boost != 1.0:
+        cw_dict[1] = cw_dict[1] * sideways_weight_boost
 
     sw_train  = np.array([cw_dict[y] for y in ytr_c])
     cb_cw_list = [float(cw_dict.get(c, 1.0)) for c in range(3)]  # [w_DOWN, w_SIDE, w_UP]
@@ -544,8 +548,94 @@ def train_all_models(
     except Exception as _lstm_exc:
         log(f"LSTM training skipped (tree ensemble unchanged): {_lstm_exc}")
 
+    # ── Regime-conditional models (4D) ────────────────────────────────────────
+    _regime_models: dict = {}
+    try:
+        from src.features import classify_regime as _classify_regime
+        log("Classifying regimes and training regime-conditional models…")
+        _clf_target = clf_results["Stacking"]["clf_target"]
+        _train_with_regime = _classify_regime(train_df, window=20) if "regime" not in train_df.columns else train_df
+        _regime_models = train_regime_models(_train_with_regime, feature_cols, _clf_target)
+        _r_counts = {r: (int(((_train_with_regime["regime"] == r).sum())) if "regime" in _train_with_regime.columns else 0)
+                     for r in ["high_vol", "trending", "neutral"]}
+        log(f"Regime counts — " + " · ".join(f"{r}={n}" for r, n in _r_counts.items()))
+    except Exception as _re_exc:
+        log(f"Regime models skipped: {_re_exc}")
+
+    # ── Training stats for drift detection (4E) ────────────────────────────────
+    _training_stats: dict = {}
+    try:
+        _training_stats = compute_training_stats(train_df, feature_cols)
+        _stats_path = os.path.join(MODELS_DIR, "training_stats.json")
+        os.makedirs(MODELS_DIR, exist_ok=True)
+        with open(_stats_path, "w") as _sf:
+            json.dump(_training_stats, _sf)
+        log(f"Training stats saved ({len(_training_stats)} features).")
+    except Exception as _ts_exc:
+        log(f"Training stats skipped: {_ts_exc}")
+
+    clf_results["_regime_models"]   = _regime_models
+    clf_results["_training_stats"]  = _training_stats
+
     log("Training complete.")
     return reg_results, clf_results, feature_cols, stack_reg, stack_clf
+
+
+# ── Regime-conditional models ──────────────────────────────────────────────────
+
+def train_regime_models(df: pd.DataFrame, feature_cols: list, target_col: str) -> dict:
+    """
+    Train three LightGBM models — one per market regime (high_vol, trending, neutral).
+    Returns dict {regime: model_or_None}.
+    """
+    regime_models = {}
+    for regime in ["high_vol", "trending", "neutral"]:
+        try:
+            mask = df["regime"] == regime
+            n = int(mask.sum())
+            if n < 60:
+                print(f"Regime '{regime}': only {n} samples — skipped (min 60 required)")
+                regime_models[regime] = None
+                continue
+            X_r = df.loc[mask, feature_cols].values
+            y_r = df.loc[mask, target_col].values.astype(int)
+            model = lgb.LGBMClassifier(
+                class_weight="balanced",
+                n_estimators=300,
+                learning_rate=0.05,
+                random_state=RANDOM_STATE,
+                verbose=-1,
+                n_jobs=1,
+            )
+            model.fit(X_r, y_r)
+            regime_models[regime] = model
+            print(f"Regime '{regime}': trained on {n} samples")
+        except Exception as exc:
+            print(f"Regime '{regime}': training failed ({exc})")
+            regime_models[regime] = None
+    return regime_models
+
+
+# ── Training stats for drift detection ────────────────────────────────────────
+
+def compute_training_stats(df: pd.DataFrame, feature_cols: list) -> dict:
+    """Compute mean/std/min/max per feature for live drift detection."""
+    stats = {}
+    try:
+        sub = df[feature_cols].replace([np.inf, -np.inf], np.nan)
+        for col in feature_cols:
+            s = sub[col].dropna()
+            if len(s) == 0:
+                continue
+            stats[col] = {
+                "mean": float(s.mean()),
+                "std":  float(s.std()),
+                "min":  float(s.min()),
+                "max":  float(s.max()),
+            }
+    except Exception:
+        pass
+    return stats
 
 
 # ── Backwards-compat wrappers (called by older app code paths) ────────────────
@@ -588,11 +678,15 @@ def save_models(reg_results, clf_results, feature_cols,
                 stack_reg=None, stack_clf=None):
     os.makedirs(MODELS_DIR, exist_ok=True)
     payload = {
-        "reg_results":  reg_results,
-        "clf_results":  clf_results,
-        "feature_cols": feature_cols,
-        "stack_reg":    stack_reg,
-        "stack_clf":    stack_clf,
+        "reg_results":   reg_results,
+        "clf_results":   clf_results,
+        "feature_cols":  feature_cols,
+        "stack_reg":     stack_reg,
+        "stack_clf":     stack_clf,
+        "regime_models": clf_results.get("_regime_models", {}),
+        "thresholds":    (clf_results.get("Stacking") or {}).get("thresholds", {}),
+        "trained_at":    _dt.now().isoformat(),
+        "training_stats": clf_results.get("_training_stats", {}),
     }
     with open(os.path.join(MODELS_DIR, "models.pkl"), "wb") as f:
         pickle.dump(payload, f)
@@ -618,3 +712,157 @@ def load_models():
         d = pickle.load(f)
     return (d["reg_results"], d["clf_results"], d["feature_cols"],
             d.get("stack_reg"), d.get("stack_clf"))
+
+
+# ── Silver / Platinum model training ──────────────────────────────────────────
+
+def _get_default_metal_hyperparams() -> dict:
+    """Fixed reasonable hyperparams for Silver/Platinum (skips Optuna for speed)."""
+    return {
+        "xgb_reg": {"n_estimators": 100, "max_depth": 4, "learning_rate": 0.05,
+                    "subsample": 0.8, "colsample_bytree": 0.8,
+                    "reg_alpha": 0.1, "reg_lambda": 1.0},
+        "lgb_reg": {"n_estimators": 100, "num_leaves": 31, "learning_rate": 0.05,
+                    "subsample": 0.8, "colsample_bytree": 0.8,
+                    "reg_alpha": 0.1, "reg_lambda": 1.0},
+        "cb_reg":  {"iterations": 100, "depth": 4, "learning_rate": 0.05,
+                    "l2_leaf_reg": 1.0},
+        "xgb_clf": {"n_estimators": 100, "max_depth": 4, "learning_rate": 0.05,
+                    "subsample": 0.8, "colsample_bytree": 0.8},
+        "lgb_clf": {"n_estimators": 100, "num_leaves": 31, "learning_rate": 0.05,
+                    "subsample": 0.8, "colsample_bytree": 0.8},
+        "cb_clf":  {"iterations": 100, "depth": 4, "learning_rate": 0.05,
+                    "l2_leaf_reg": 1.0},
+    }
+
+
+def train_metal_model(ticker: str, metal_name: str,
+                      progress_callback=None) -> dict | None:
+    """
+    Train a signal model for Silver or Platinum using the same pipeline as Gold
+    but with default hyperparams (no Optuna) for speed (~5 min per metal).
+
+    Returns a bundle dict or None on failure. Graceful degradation throughout —
+    never crashes; any step failure returns None with a log message.
+    """
+    def log(msg):
+        if progress_callback:
+            progress_callback(msg)
+        else:
+            print(msg)
+
+    log(f"Fetching {metal_name} training data (5y + macro sidecars)…")
+    try:
+        from src.data_loader import download_metal_ohlcv
+        raw = download_metal_ohlcv(ticker, years=5)
+    except Exception as exc:
+        log(f"Data fetch failed for {metal_name}: {exc}")
+        return None
+
+    if raw.empty or len(raw) < 200:
+        log(f"Insufficient data for {metal_name} ({len(raw)} bars — need ≥200)")
+        return None
+
+    log(f"Building features for {metal_name} ({len(raw)} bars)…")
+    try:
+        from src.features import add_features, classify_regime
+        df = add_features(raw)
+        df = classify_regime(df)
+    except Exception as exc:
+        log(f"Feature engineering failed for {metal_name}: {exc}")
+        return None
+
+    clf_target  = ("Target_Direction" if "Target_Direction" in df.columns
+                   else "Target_Signal")
+    feat_cols   = get_feature_columns(df)
+    keep        = feat_cols + [clf_target, "Target_Close"]
+    available   = df[[c for c in keep if c in df.columns]].dropna()
+
+    if len(available) < 200:
+        log(f"Insufficient usable rows for {metal_name} "
+            f"({len(available)} after dropna — need ≥200)")
+        return None
+
+    # Temporal 80/20 split (no shuffle — time-series)
+    split    = int(len(available) * 0.80)
+    train_df = available.iloc[:split]
+    test_df  = available.iloc[split:]
+    n_train, n_test = len(train_df), len(test_df)
+    log(f"{metal_name}: {n_train} train rows, {n_test} test rows, "
+        f"{len(feat_cols)} features")
+
+    if n_train < 100 or n_test < 20:
+        log(f"Split too small for {metal_name} "
+            f"(train={n_train}, test={n_test})")
+        return None
+
+    _regime_counts = {}
+    if "regime" in df.columns:
+        for _r in ["high_vol", "trending", "neutral"]:
+            _regime_counts[_r] = int(
+                (df["regime"].iloc[:split] == _r).sum())
+        log("Regime counts — "
+            + " · ".join(f"{r}={n}" for r, n in _regime_counts.items()))
+
+    log(f"Training {metal_name} ensemble (default hyperparams, fast mode)…")
+    try:
+        reg_r, clf_r, feat, sr, sc = train_all_models(
+            train_df.copy(), test_df.copy(),
+            n_trials=10,
+            pretrained_hyperparams=_get_default_metal_hyperparams(),
+            fast_retrain=True,
+            sideways_weight_boost=1.0,
+            progress_callback=log,
+        )
+    except Exception as exc:
+        log(f"Ensemble training failed for {metal_name}: {exc}")
+        return None
+
+    # Evaluate
+    stk    = clf_r.get("Stacking", {})
+    y_true = np.array(stk.get("y_test",       []))
+    y_pred = np.array(stk.get("predictions",  []))
+    overall = float(np.mean(y_true == y_pred)) if len(y_true) else 0.0
+    per_cls: dict = {}
+    for cls, lbl in [(0, "DOWN"), (1, "SIDEWAYS"), (2, "UP")]:
+        mask = y_true == cls
+        per_cls[lbl] = (float(np.mean(y_pred[mask] == cls))
+                        if mask.sum() > 0 else 0.0)
+
+    log(f"{metal_name} accuracy: {overall:.1%} overall | "
+        + " | ".join(f"{l}: {p:.1%}" for l, p in per_cls.items()))
+
+    return {
+        "ticker":        ticker,
+        "metal_name":    metal_name,
+        "reg_results":   reg_r,
+        "clf_results":   clf_r,
+        "feature_cols":  feat,
+        "stack_reg":     sr,
+        "stack_clf":     sc,
+        "thresholds":    {"threshold_down": 0.25, "threshold_up": 0.38},
+        "trained_at":    _dt.now().isoformat(),
+        "n_train":       n_train,
+        "n_test":        n_test,
+        "overall_acc":   overall,
+        "per_class_acc": per_cls,
+    }
+
+
+def save_metal_models(payload: dict) -> None:
+    """Save {silver: bundle, platinum: bundle} dict to models/metals_models.pkl."""
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    with open(os.path.join(MODELS_DIR, "metals_models.pkl"), "wb") as f:
+        pickle.dump(payload, f)
+
+
+def load_metal_models() -> dict:
+    """Load metals_models.pkl. Returns {} if not found or corrupted."""
+    path = os.path.join(MODELS_DIR, "metals_models.pkl")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        return {}

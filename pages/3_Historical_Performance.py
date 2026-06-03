@@ -1,5 +1,5 @@
 """
-Gold AI — Historical Performance
+APEX Metals AI — Historical Performance
 Walk-forward validation summary + live backtest results.
 """
 import os, sys, warnings
@@ -17,7 +17,7 @@ from src.wfv_parser import parse_validation_log, latest_validation_log
 from src.benchmarks import benchmark_metrics_table
 
 st.set_page_config(
-    page_title="Gold AI Decision Intelligence — Historical Performance",
+    page_title="APEX Metals AI — Historical Performance",
     page_icon="📈",
     layout="wide",
 )
@@ -50,7 +50,7 @@ st.caption("⚠️ NOT financial advice · Walk-forward validation 2019–2024 �
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — Walk-Forward Validation (6 windows)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("Walk-Forward Validation — Gold AI Decision Intelligence Baseline")
+st.header("Walk-Forward Validation — APEX Metals AI Baseline")
 st.caption("6 independent test windows · Train = prior 4 years · Test = target year · 100 Optuna trials")
 
 log_path = latest_validation_log(PROJECT_ROOT)
@@ -187,7 +187,7 @@ else:
     st.caption(
         f"Source: {os.path.basename(log_path)}  ·  "
         f"Elapsed: {elapsed:.0f} min  ·  "
-        f"Gold AI v1 baseline (TUNE_ONCE=True, 100 trials, 117 features, bull_thr=0.42)"
+        f"APEX Metals AI v1 baseline (TUNE_ONCE=True, 100 trials, 117 features, bull_thr=0.42)"
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
