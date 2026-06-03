@@ -83,72 +83,88 @@ Full Optuna retrain (N_TRIALS=100, 18.4 min):
 - Verdict gate: GO requires against≤1 AND for≥2; otherwise CAUTION (not defaulted)
 - Rolling accuracy source-tagged: "· OOS eval" or "· test set" in reason text
 
-**Step 6A — Silver & Platinum Price Data: COMPLETE**
+**Step 6A — Silver & Platinum Price Data: MOSTLY COMPLETE — one item missing**
+
+What ran:
 - `get_silver_price()`, `get_platinum_price()`, `download_metal_ohlcv()` added to `src/data_loader.py`
-- Silver waterfall: SI=F → SLV×10 → Alpha Vantage XAG
-- Platinum waterfall: PL=F → PPLT
-- `download_metal_ohlcv()` downloads OHLCV + macro sidecars with exact column names for `add_features()`
-- Silver/Platinum section in `app.py` replaced: live price, currency conversion, GSR/spread, 90-day chart
-- Metal model training buttons added to sidebar; training flow for Silver + Platinum
+- Silver waterfall: SI=F → SLV×10 → Alpha Vantage XAG ✓
+- Platinum waterfall: PL=F → PPLT ✓
+- `download_metal_ohlcv()` downloads OHLCV + macro sidecars with exact column names for `add_features()` ✓
+- Silver/Platinum section in `app.py` replaced: live price in selected currency, data source
+  label, Gold/Silver ratio (with >80 / <50 flags), Platinum/Gold spread, 90-day OHLC chart ✓
+- Metal model training buttons added to sidebar; training flow wired ✓
+
+Missing from spec (must be added before 6A is truly complete):
+- **Daily change $ and % not shown on the metal price header** — the spec requires
+  "Daily change $ and %" alongside spot price. Currently only currency-converted price is
+  displayed; the previous-day comparison delta is absent.
 
 **Step 6B — Silver & Platinum Signal Models: TRAINED — SIDEWAYS REBALANCE REQUIRED BEFORE 6C**
 
+What ran:
 - `train_metal_model()`, `save_metal_models()`, `load_metal_models()` added to `src/train.py`
 - Both models trained (no Optuna, fast_retrain=True, sideways_weight_boost=1.0)
-- Saved to `models/metals_models.pkl`
+- Saved to `models/metals_models.pkl`; auto-loaded in app.py on cold start
 - 150 features each; LSTM augmented meta-clf active for both
+- Thresholds tuned by OOF calibration: Silver UP>0.43/DN>0.25, Platinum UP>0.42/DN>0.28
 
-| Model    | Overall | DOWN  | SIDEWAYS | UP    | Train | Test | Thresholds        |
-|----------|---------|-------|----------|-------|-------|------|-------------------|
-| Silver   | 37.2%   | 34.3% | 12.8%    | 48.1% | 857   | 215  | UP>0.43/DN>0.25   |
-| Platinum | 42.7%   | 41.3% | 0.0%     | 55.6% | 851   | 213  | UP>0.42/DN>0.28   |
+Accuracy on strictly-forward test split (no leakage):
 
-**⚠️ BLOCKED: SIDEWAYS recall is collapsed** — Silver 12.8%, Platinum 0.0%. Models are
+| Model    | Overall | DOWN  | SIDEWAYS | UP    | Train | Test |
+|----------|---------|-------|----------|-------|-------|------|
+| Silver   | 37.2%   | 34.3% | 12.8%    | 48.1% | 857   | 215  |
+| Platinum | 42.7%   | 41.3% | 0.0%     | 55.6% | 851   | 213  |
+
+3-class random baseline = 33.3%. Both models beat overall baseline.
+
+⚠️ BLOCKED — SIDEWAYS recall collapsed (Silver 12.8%, Platinum 0.0%). Both models are
 effectively binary (DOWN/UP only). The Decision Intelligence Centre for metals MUST NOT
-be built until both metals have acceptable SIDEWAYS recall. Required before Step 6C:
+be built until SIDEWAYS recall is acceptable. Required before 6C:
+  (a) Retrain both metals with sideways_weight_boost ≥ 1.3 (same lever used for gold).
+  (b) Report per-class PRECISION and RECALL on a strictly-forward split.
+  (c) SIDEWAYS recall floor ≥ 20% on test set required before proceeding.
+  (d) Wait for explicit user confirmation before building 6C.
 
-  (a) Retrain both metals with sideways_weight_boost > 1.0 (start at 1.3, same as gold
-      originally used) and/or explicit SIDEWAYS recall floor in threshold optimisation.
-  (b) Verify per-class precision AND recall on a strictly-forward (no-leakage) split.
-  (c) SIDEWAYS recall floor: ≥ 20% on the test set before proceeding.
-  (d) Only then build Step 6C (full metal dashboard + DIC).
+⚠️ OPEN ITEM — classify_regime() falls back to "neutral" for all metal training rows.
+`train_metal_model()` filters df to feature columns only before passing to
+`train_all_models()`. `classify_regime()` needs the `Close` column; without it, every row
+is labelled "neutral" and high_vol/trending regime models are never trained.
+Fix: pass the full feature-engineered df (with OHLCV) into train_all_models(), letting it
+internally filter features via get_feature_columns(). Use the same temporal split dates
+derived from the available rows.
+ALSO VERIFY: does this bug affect gold? Gold uses get_train_test_split(df) which returns
+the full df including Close — so gold's regime models should be correct. Confirm before fix.
 
-**⚠️ OPEN ITEM: classify_regime() falls back to neutral for metals** — `train_metal_model()`
-passes only feature columns to `train_all_models()`, which lacks the `Close` column that
-`classify_regime()` needs. Result: all training rows classified as "neutral" → regime models
-for high_vol and trending are never trained. Regime-conditional routing is a no-op for
-Silver and Platinum; signals come from the universal ensemble only.
-ACTION REQUIRED: verify whether the same bug affects gold (check that gold's train_df
-passed to train_all_models() includes Close — it should since get_train_test_split() returns
-the full df). If gold is clean, fix train_metal_model() to pass the full df (with OHLCV)
-to train_all_models(), using get_train_test_split() on the feature-engineered df before
-filtering to feature columns.
+**Step 6C — Full Silver & Platinum Dashboard: NOT STARTED**
+Blocked on: 6B SIDEWAYS rebalance + verification.
+Scope: Morning Brief (metal parameter), regime display, Decision Intelligence Centre,
+feature importance chart, signal explanation — same sections as gold, per metal.
+
+**Step 6D — Multi-Metal Comparison Panel: NOT STARTED**
+Scope: Normalised 90-day chart (all 3 indexed to 100), key ratios table,
+signals summary table (metal | price | signal | confidence | regime).
+
+**Step 6E — Portfolio Tracker: NOT STARTED**
+Scope: session-state P&L for 3 metals, USD + AED, total row, disclaimer.
 
 ---
 
 ## Remaining Work Order (do not skip or reorder)
 
-1. **Metal SIDEWAYS rebalance + verify** (prerequisite for 6C)
+1. **Fix 6A missing item** — add daily change $/% to Silver/Platinum price header
+2. **Metal SIDEWAYS rebalance + verify** (prerequisite for 6C)
+   - Fix classify_regime() fallback in train_metal_model()
    - Retrain Silver and Platinum with sideways_weight_boost ≥ 1.3
-   - Fix classify_regime() fallback (pass full df to train_all_models)
-   - Report per-class precision + recall on forward split; confirm SIDEWAYS ≥ 20%
-   - Wait for confirmation before proceeding
-
-2. **Step 6C** — Full Silver & Platinum dashboard (Morning Brief, regime, DIC, feature importance)
-
-3. **Step 6D** — Multi-Metal Comparison Panel (normalised chart, ratios, signals table)
-
-4. **Step 6E** — Portfolio Tracker (3-metal P&L, AED/USD, session-state storage)
-
-5. **Step 7** — SHAP Transparency Layer
-
-6. **Step 8** — KPI Command Centre
-
-7. **Step 9** — GitHub repo rename (manual)
-
-8. **Step 10** — Final commit + local test checklist
-
-9. **Step 11** — Streamlit Cloud deployment (manual)
+   - Report per-class precision + recall; confirm SIDEWAYS recall ≥ 20%
+   - Wait for explicit confirmation before 6C
+3. **Step 6C** — Full Silver & Platinum dashboard
+4. **Step 6D** — Multi-Metal Comparison Panel
+5. **Step 6E** — Portfolio Tracker
+6. **Step 7** — SHAP Transparency Layer
+7. **Step 8** — KPI Command Centre
+8. **Step 9** — GitHub repo rename (manual)
+9. **Step 10** — Final commit + local test checklist
+10. **Step 11** — Streamlit Cloud deployment (manual)
 
 ---
 
