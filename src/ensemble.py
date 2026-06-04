@@ -167,6 +167,7 @@ class StackingClassifier:
         model_factories: dict,
         progress_cb=None,
         sample_weight: np.ndarray | None = None,
+        cw_dict: dict | None = None,
     ) -> "StackingClassifier":
         tscv_oof = TimeSeriesSplit(n_splits=self.cv_folds)
         n_models = len(model_factories)
@@ -182,8 +183,15 @@ class StackingClassifier:
 
             # SMOTE only on the training fold — val_idx rows are never touched
             Xtr_s, ytr_s = _smote_resample(Xtr, ytr, random_state=RANDOM_STATE)
-            # When SMOTE succeeds, sample_weight is superseded by balanced resampling
-            sw_fit = None if (Xtr_s.shape[0] != Xtr.shape[0]) else sw_tr
+            smote_fired = Xtr_s.shape[0] != Xtr.shape[0]
+            if smote_fired and cw_dict is not None:
+                # Recompute sample weights on SMOTE output using the same cw_dict
+                # so the sideways boost propagates through synthetic samples.
+                sw_fit = np.array([cw_dict.get(int(y), 1.0) for y in ytr_s])
+            elif smote_fired:
+                sw_fit = None
+            else:
+                sw_fit = sw_tr
 
             for col_i, (name, factory) in enumerate(model_factories.items()):
                 if progress_cb:
@@ -229,7 +237,13 @@ class StackingClassifier:
 
         # ── Retrain calibrated L1 on full training set (SMOTE on full train) ────
         X_train_s, y_train_s = _smote_resample(X_train, y_train, random_state=RANDOM_STATE)
-        sw_full = None if (X_train_s.shape[0] != X_train.shape[0]) else sample_weight
+        smote_fired_full = X_train_s.shape[0] != X_train.shape[0]
+        if smote_fired_full and cw_dict is not None:
+            sw_full = np.array([cw_dict.get(int(y), 1.0) for y in y_train_s])
+        elif smote_fired_full:
+            sw_full = None
+        else:
+            sw_full = sample_weight
 
         self._cal_l1, self._cal_names = [], []
         for name, factory in model_factories.items():
@@ -319,7 +333,7 @@ def make_xgb_clf_factory(params: dict):
 def make_lgb_clf_factory(params: dict):
     def factory():
         p = {**params, "random_state": RANDOM_STATE, "verbose": -1,
-             "class_weight": "balanced", "n_jobs": 1, "deterministic": True}
+             "n_jobs": 1, "deterministic": True}
         return lgb.LGBMClassifier(**p)
     return factory
 

@@ -118,7 +118,9 @@ def _build_explanation_prompt(sd: dict) -> str:
     )
 
 
-def _build_brief_prompt(sd: dict, date: str) -> str:
+def _build_brief_prompt(sd: dict, date: str,
+                        metal_name: str = "Gold",
+                        metal_symbol: str = "XAU/USD") -> str:
     sig      = sd.get("signal",             "SIDEWAYS")
     conf     = sd.get("confidence", 0) * 100
     price    = sd.get("gold_price",         0.0)
@@ -144,9 +146,9 @@ def _build_brief_prompt(sd: dict, date: str) -> str:
         )
 
     return (
-        f"Date: {date}. Write a morning market brief for gold (XAU/USD).\n\n"
+        f"Date: {date}. Write a morning market brief for {metal_name} ({metal_symbol}).\n\n"
         f"Current market data:\n"
-        f"- Gold price: ${price:,.2f}{aed_str} ({chg:+.2f}% overnight)\n"
+        f"- {metal_name} price: ${price:,.2f}{aed_str} ({chg:+.2f}% overnight)\n"
         f"{lbma_str}"
         f"- Today's AI signal: {sig} ({conf:.0f}% model confidence)\n"
         f"- Model directional probabilities: UP {p_up:.0f}%, DOWN {p_dn:.0f}%\n"
@@ -211,9 +213,11 @@ def generate_morning_brief(
     signal_data: dict,
     date: str,
     api_key: str,
+    metal_name: str = "Gold",
+    metal_symbol: str = "XAU/USD",
 ) -> str | None:
     """
-    Generate a 200-250 word daily morning market brief for gold.
+    Generate a 200-250 word daily morning market brief for the given metal.
 
     Parameters
     ----------
@@ -243,7 +247,7 @@ def generate_morning_brief(
             messages=[
                 {
                     "role": "user",
-                    "content": _build_brief_prompt(signal_data, date),
+                    "content": _build_brief_prompt(signal_data, date, metal_name, metal_symbol),
                 }
             ],
         )

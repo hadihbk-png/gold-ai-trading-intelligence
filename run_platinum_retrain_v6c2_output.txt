@@ -1,0 +1,111 @@
+WARNING:tensorflow:From C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\site-packages\keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
+
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\site-packages\joblib\externals\loky\backend\context.py", line 257, in _count_physical_cores
+    cpu_info = subprocess.run(
+               ^^^^^^^^^^^^^^^
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "C:\Users\hadih\AppData\Local\Programs\Python\Python311\Lib\subprocess.py", line 1538, in _execute_child
+    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+==========================================================================
+APEX Metals AI — Platinum Honest Retrain (boost=1.0, LGB fix)
+Started: 2026-06-04 04:32:35
+==========================================================================
+
+Loading existing metals_models.pkl to preserve Silver run-2…
+  Silver loaded: overall_acc=49.8%  (expected ~49.8% for run-2)
+
+--------------------------------------------------------------------------
+  PLATINUM  (boost=1.0, LGB fix — honest directional model)
+--------------------------------------------------------------------------
+  Discarding boost=5.0 model (DOWN collapsed to 24.0%).
+
+Fetching Platinum training data (5y + macro sidecars)…
+Building features for Platinum (1319 bars)…
+Platinum: 851 train rows, 213 test rows, 150 features
+Regime counts — high_vol=88 · trending=499 · neutral=264
+sideways_weight_boost forced to 1.0 for Platinum (search skipped)
+-> Chosen sideways_weight_boost = 1.0 for Platinum
+Training Platinum ensemble (default hyperparams, fast mode)…
+Using classification target: Target_Direction (class dist: DOWN=39.4% SIDE=20.9% UP=39.7%)
+Using pre-tuned hyperparameters — Optuna skipped.
+Fast-retrain: LGB estimators capped at 100 (reg 100, clf 100)
+Training individual regression models…
+Training individual classification models (class-balanced)…
+Fast-retrain: stacking OOF folds=3, cal_cv=2
+Building regression stacking ensemble (OOF)…
+  Stacking regression fold 1/3 – XGBoost
+  Stacking regression fold 1/3 – LightGBM
+  Stacking regression fold 1/3 – CatBoost
+  Stacking regression fold 2/3 – XGBoost
+  Stacking regression fold 2/3 – LightGBM
+  Stacking regression fold 2/3 – CatBoost
+  Stacking regression fold 3/3 – XGBoost
+  Stacking regression fold 3/3 – LightGBM
+  Stacking regression fold 3/3 – CatBoost
+  Retraining L1 XGBoost on full training set
+  Retraining L1 LightGBM on full training set
+  Retraining L1 CatBoost on full training set
+Building calibrated classification stacking ensemble (OOF, class-balanced)…
+  Stacking classification fold 1/3 – XGBoost
+  Stacking classification fold 1/3 – LightGBM
+  Stacking classification fold 1/3 – CatBoost
+  Stacking classification fold 2/3 – XGBoost
+  Stacking classification fold 2/3 – LightGBM
+  Stacking classification fold 2/3 – CatBoost
+  Stacking classification fold 3/3 – XGBoost
+  Stacking classification fold 3/3 – LightGBM
+  Stacking classification fold 3/3 – CatBoost
+  Calibrating L1 XGBoost on full training set
+  Calibrating L1 LightGBM on full training set
+  Calibrating L1 CatBoost on full training set
+Optimising confidence thresholds on OOF data…
+Optimal thresholds: UP>0.440 DOWN>0.330 (profit-proxy score=0.7937)
+Training LSTM base model (Phase 4A)…
+  LSTM: scaling features for sequence model…
+  LSTM fold 1/3 complete
+  LSTM fold 2/3 complete
+  LSTM fold 3/3 complete
+  LSTM: training final model on full dataset…
+  LSTM: training complete.
+LSTM integrated: augmented meta-clf trained on 636 OOF samples.
+Classifying regimes and training regime-conditional models…
+Regime 'high_vol': trained on 88 samples
+Regime 'trending': trained on 499 samples
+Regime 'neutral': trained on 264 samples
+Regime counts — high_vol=88 · trending=499 · neutral=264
+Training stats saved (150 features).
+Training complete.
+Platinum accuracy: 37.6% overall | DOWN: rec=42.7% prec=30.2% | SIDEWAYS: rec=6.7% prec=13.3% | UP: rec=42.6% prec=50.0%
+Platinum done in 1.7 min
+
+Saved -> models/metals_models.pkl
+
+FINAL STATE — both metals saved
+--------------------------------------------------------------------------
+Metal      | Overall | DOWN rec | DOWN pre | SIDE rec | SIDE pre | UP rec | UP pre | Boost | Train | Test
+--------------------------------------------------------------------------
+Silver     |   49.8% |    44.3% |    49.2% |    10.3% |    21.1% |  67.9% |  54.1% |   1.0 |   857 |  215  [preserved run-2]
+Platinum   |   37.6% |    42.7% |    30.2% |     6.7% |    13.3% |  42.6% |  50.0% |   1.0 |   851 |  213  [fresh retrain]
+--------------------------------------------------------------------------
+
+Platinum BEFORE (boost=5.0, discarded) -> AFTER (boost=1.0):
+  DOWN     : 24.0% -> 42.7%  (up 18.7%)
+  SIDEWAYS : 3.3% -> 6.7%  (up 3.4%)
+  UP       : 70.4% -> 42.6%  (down 27.8%)
+
+SIDEWAYS status (honest):
+  Silver   SIDEWAYS recall = 10.3%  (learnable by single-LGB probe at 25.6%; suppressed by meta-learner)
+  Platinum SIDEWAYS recall = 6.7%  (structurally not separable with current 150 features)
+
+Neither metal meets the 20% floor. Both are directional-leaning models.
+SIDEWAYS signals for Silver/Platinum will be flagged low-reliability in 6C.
+
+Total elapsed: 1.9 min
+Finished: 2026-06-04 04:34:30
+==========================================================================
+STOP — awaiting review before 6C.

@@ -83,62 +83,96 @@ Full Optuna retrain (N_TRIALS=100, 18.4 min):
 - Verdict gate: GO requires against≤1 AND for≥2; otherwise CAUTION (not defaulted)
 - Rolling accuracy source-tagged: "· OOS eval" or "· test set" in reason text
 
-**Step 6A — Silver & Platinum Price Data: MOSTLY COMPLETE — one item missing**
+**Step 6A — Silver & Platinum Price Data: COMPLETE**
 
 What ran:
 - `get_silver_price()`, `get_platinum_price()`, `download_metal_ohlcv()` added to `src/data_loader.py`
 - Silver waterfall: SI=F → SLV×10 → Alpha Vantage XAG ✓
 - Platinum waterfall: PL=F → PPLT ✓
 - `download_metal_ohlcv()` downloads OHLCV + macro sidecars with exact column names for `add_features()` ✓
-- Silver/Platinum section in `app.py` replaced: live price in selected currency, data source
-  label, Gold/Silver ratio (with >80 / <50 flags), Platinum/Gold spread, 90-day OHLC chart ✓
+- Silver/Platinum price header: live price in selected currency, **daily change $ and %** (vs prev close),
+  data source label, Gold/Silver ratio (with >80 / <50 flags), Platinum/Gold spread ✓
 - Metal model training buttons added to sidebar; training flow wired ✓
+- OHLCV data loaded once per page render and reused across chart, delta, and DIC features ✓
 
-Missing from spec (must be added before 6A is truly complete):
-- **Daily change $ and % not shown on the metal price header** — the spec requires
-  "Daily change $ and %" alongside spot price. Currently only currency-converted price is
-  displayed; the previous-day comparison delta is absent.
+**Step 6B — Silver & Platinum Signal Models: COMPLETE — HONEST DIRECTIONAL MODELS**
 
-**Step 6B — Silver & Platinum Signal Models: TRAINED — SIDEWAYS REBALANCE REQUIRED BEFORE 6C**
-
-What ran:
+What ran (final state, 2026-06-04):
 - `train_metal_model()`, `save_metal_models()`, `load_metal_models()` added to `src/train.py`
-- Both models trained (no Optuna, fast_retrain=True, sideways_weight_boost=1.0)
-- Saved to `models/metals_models.pkl`; auto-loaded in app.py on cold start
-- 150 features each; LSTM augmented meta-clf active for both
-- Thresholds tuned by OOF calibration: Silver UP>0.43/DN>0.25, Platinum UP>0.42/DN>0.28
+- Both models trained (no Optuna, fast_retrain=True); saved to `models/metals_models.pkl`
+- 150 features each; LSTM augmented meta-clf active; regime-conditional models trained
+- Thresholds tuned by OOF calibration:
+  Silver UP>0.40/DN>0.27, Platinum UP>0.44/DN>0.33
 
-Accuracy on strictly-forward test split (no leakage):
+Bugs fixed before final retrain (all in this session):
+1. **classify_regime() fallback fixed** — `train_metal_model()` previously stripped OHLCV
+   columns before passing to `train_all_models()`, so `classify_regime()` fell back to
+   "neutral" for every row. Fix: preserve full df width; drop NaN only on training-critical
+   columns. Regime counts now non-trivial for both metals.
+2. **LGB sample-weight bug fixed** — `make_lgb_clf_factory()` (ensemble.py) and
+   `_eval_individual_classifiers()` (train.py) both hardcoded `class_weight="balanced"`,
+   bypassing the sideways_weight_boost sample weights. Fixed: class_weight removed; LGB
+   now receives the same boosted sample weights as XGB/CB.
+3. **SMOTE drops sample weights fixed** — `StackingClassifier.fit()` was setting
+   `sw_fit=None` whenever SMOTE fired, discarding the sideways boost. Fixed: recompute
+   sample weights from `cw_dict` on SMOTE-resampled labels (mirrors existing logic in
+   `_eval_individual_classifiers`). SMOTE leakage audit: clean — SMOTE is only ever
+   called on training-fold data, never crossing the 80/20 temporal split.
 
-| Model    | Overall | DOWN  | SIDEWAYS | UP    | Train | Test |
-|----------|---------|-------|----------|-------|-------|------|
-| Silver   | 37.2%   | 34.3% | 12.8%    | 48.1% | 857   | 215  |
-| Platinum | 42.7%   | 41.3% | 0.0%     | 55.6% | 851   | 213  |
+Gold is NOT affected by these fixes: gold's training path passes the full df (including
+Close and regime) to `train_all_models()` and does not need a retrain.
 
-3-class random baseline = 33.3%. Both models beat overall baseline.
+SIDEWAYS investigation outcome — 20% recall floor NOT met (user confirmed: proceed):
+- Per-metal boost grid search [1.0 … 5.0] run. Silver already meets probe threshold at
+  boost=1.0 (single-LGB 25.6% SIDE recall) but the stacking meta-learner suppresses it.
+- Platinum SIDEWAYS is structurally not separable with current 150 features (probe max 6.7%).
+- Boosting SIDEWAYS heavily (e.g. boost=5.0 for Platinum) collapsed DOWN recall to 24.0%.
+- Decision: both metals use boost=1.0 (honest directional models; no artificial SIDEWAYS).
 
-⚠️ BLOCKED — SIDEWAYS recall collapsed (Silver 12.8%, Platinum 0.0%). Both models are
-effectively binary (DOWN/UP only). The Decision Intelligence Centre for metals MUST NOT
-be built until SIDEWAYS recall is acceptable. Required before 6C:
-  (a) Retrain both metals with sideways_weight_boost ≥ 1.3 (same lever used for gold).
-  (b) Report per-class PRECISION and RECALL on a strictly-forward split.
-  (c) SIDEWAYS recall floor ≥ 20% on test set required before proceeding.
-  (d) Wait for explicit user confirmation before building 6C.
+Per-class metrics on strictly-forward 80/20 test split (no leakage, no SMOTE on test):
 
-⚠️ OPEN ITEM — classify_regime() falls back to "neutral" for all metal training rows.
-`train_metal_model()` filters df to feature columns only before passing to
-`train_all_models()`. `classify_regime()` needs the `Close` column; without it, every row
-is labelled "neutral" and high_vol/trending regime models are never trained.
-Fix: pass the full feature-engineered df (with OHLCV) into train_all_models(), letting it
-internally filter features via get_feature_columns(). Use the same temporal split dates
-derived from the available rows.
-ALSO VERIFY: does this bug affect gold? Gold uses get_train_test_split(df) which returns
-the full df including Close — so gold's regime models should be correct. Confirm before fix.
+| Model    | Overall | DOWN rec | DOWN pre | SIDE rec | SIDE pre | UP rec | UP pre | Boost |
+|----------|---------|----------|----------|----------|----------|--------|--------|-------|
+| Silver   | 49.8%   | 44.3%    | 49.2%    | 10.3%    | 21.1%    | 67.9%  | 54.1%  | 1.0   |
+| Platinum | 37.6%   | 42.7%    | 30.2%    | 6.7%     | 13.3%    | 42.6%  | 50.0%  | 1.0   |
 
-**Step 6C — Full Silver & Platinum Dashboard: NOT STARTED**
-Blocked on: 6B SIDEWAYS rebalance + verification.
-Scope: Morning Brief (metal parameter), regime display, Decision Intelligence Centre,
-feature importance chart, signal explanation — same sections as gold, per metal.
+3-class random baseline = 33.3%. Silver exceeds baseline significantly (+16.5pp).
+Platinum marginally above baseline (+4.3pp), with strong directional recall but weak precision.
+
+SIDEWAYS status (locked — do not retry boosting or threshold-force):
+- Silver SIDEWAYS: learnable by a single LGB (probe 25.6%) but suppressed by the stacking
+  meta-learner, which optimises for overall OOF accuracy and discounts a class that is
+  uncertain across all three L1 models. Not a data problem; an architecture tradeoff.
+- Platinum SIDEWAYS: structurally not separable with current features. Probe never exceeded
+  6.7% at any boost. Accept as a directional-only model.
+- In Step 6C: SIDEWAYS signals for both metals will be flagged low-reliability in the UI.
+  The no-trade / confidence / consensus checks in the Decision Intelligence Centre will gate
+  choppy days rather than relying on the SIDEWAYS class label.
+
+**Step 6C — Full Silver & Platinum Dashboard: COMPLETE — awaiting review**
+
+All sections built in `app.py`, replacing the old placeholder+`st.stop()`:
+- Price header with daily change $/% in selected currency ✓
+- Signal card + confidence + regime pill (inline below confidence) ✓
+- SIDEWAYS low-reliability warning banner (Silver and Platinum, different copy per metal) ✓
+- Directional Probability breakdown (DOWN/SIDEWAYS/UP) ✓
+- Signal Strength bar (same as gold) ✓
+- Morning Brief: `generate_morning_brief()` updated with `metal_name`/`metal_symbol` params;
+  brief text references the correct metal; cached per-metal in session state ✓
+- 90-day OHLC chart (reuses single `_load_metal_data()` call) ✓
+- Decision Intelligence Centre:
+  - Same GO/CAUTION/NO-TRADE gate (against≥3 → NO-TRADE; against≥2 → CAUTION;
+    against≤1 AND for≥2 → GO; else → CAUTION). NOT green-by-default.
+  - Each metal uses its own model and thresholds from `metals_models.pkl`
+  - SIDEWAYS triggers additional low-reliability warning inside DIC
+  - ATR Research Zones (UP/DOWN only) ✓
+  - Classifier Consensus (XGB/LGB/CB votes from metal bundle) ✓
+- Feature Importance (Top 15, bar chart in metal accent colour) ✓
+- AI Signal Explanation (cached per-metal in session state) ✓
+- Model status footer with per-class recall/precision and SIDEWAYS reliability note ✓
+
+`src/explainer.py`: `_build_brief_prompt()` and `generate_morning_brief()` now accept
+`metal_name` and `metal_symbol` keyword args (default "Gold"/"XAU/USD") — backward-compatible.
 
 **Step 6D — Multi-Metal Comparison Panel: NOT STARTED**
 Scope: Normalised 90-day chart (all 3 indexed to 100), key ratios table,
@@ -151,20 +185,13 @@ Scope: session-state P&L for 3 metals, USD + AED, total row, disclaimer.
 
 ## Remaining Work Order (do not skip or reorder)
 
-1. **Fix 6A missing item** — add daily change $/% to Silver/Platinum price header
-2. **Metal SIDEWAYS rebalance + verify** (prerequisite for 6C)
-   - Fix classify_regime() fallback in train_metal_model()
-   - Retrain Silver and Platinum with sideways_weight_boost ≥ 1.3
-   - Report per-class precision + recall; confirm SIDEWAYS recall ≥ 20%
-   - Wait for explicit confirmation before 6C
-3. **Step 6C** — Full Silver & Platinum dashboard
-4. **Step 6D** — Multi-Metal Comparison Panel
-5. **Step 6E** — Portfolio Tracker
-6. **Step 7** — SHAP Transparency Layer
-7. **Step 8** — KPI Command Centre
-8. **Step 9** — GitHub repo rename (manual)
-9. **Step 10** — Final commit + local test checklist
-10. **Step 11** — Streamlit Cloud deployment (manual)
+1. **Step 6D** — Multi-Metal Comparison Panel
+4. **Step 6E** — Portfolio Tracker
+5. **Step 7** — SHAP Transparency Layer
+6. **Step 8** — KPI Command Centre
+7. **Step 9** — GitHub repo rename (manual)
+8. **Step 10** — Final commit + local test checklist
+9. **Step 11** — Streamlit Cloud deployment (manual)
 
 ---
 

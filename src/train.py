@@ -247,15 +247,14 @@ def _eval_individual_classifiers(
     configs = [
         ("XGBoost",  xgb.XGBClassifier(**{**xgb_p, "random_state": RANDOM_STATE, "verbosity": 0})),
         ("LightGBM", lgb.LGBMClassifier(**{**lgb_p, "random_state": RANDOM_STATE, "verbose": -1,
-                                           "n_jobs": 1, "deterministic": True,
-                                           "class_weight": "balanced"})),
+                                           "n_jobs": 1, "deterministic": True})),
         ("CatBoost", cb.CatBoostClassifier(
             **{**cb_p, "random_seed": RANDOM_STATE, "verbose": 0, "loss_function": "MultiClass",
                "thread_count": 1,
                **({"class_weights": cw_list} if cw_list else {})})),
     ]
     for name, model in configs:
-        if name == "XGBoost" and sw is not None:
+        if name in ("XGBoost", "LightGBM") and sw is not None:
             model.fit(Xtr_s, ytr_s, sample_weight=sw)
         else:
             model.fit(Xtr_s, ytr_s)
@@ -446,6 +445,7 @@ def train_all_models(
         },
         progress_cb=log,
         sample_weight=sw_train,
+        cw_dict=cw_dict,
     )
     stack_clf_preds = stack_clf.predict(Xte_c)
     stack_clf_proba = stack_clf.predict_proba(Xte_c)
@@ -716,6 +716,40 @@ def load_models():
 
 # ── Silver / Platinum model training ──────────────────────────────────────────
 
+def _probe_sideways_boost(
+    Xtr: np.ndarray, ytr: np.ndarray,
+    Xte: np.ndarray, yte: np.ndarray,
+    boost: float,
+) -> tuple:
+    """
+    Fast single-LGB probe for the per-metal sideways_weight_boost grid search.
+    Trains one LightGBM with the given boost and returns (recalls, precisions).
+    Typical runtime < 5 s; cheap enough for a 9-point grid per metal.
+    """
+    classes = np.unique(ytr)
+    weights = compute_class_weight("balanced", classes=classes, y=ytr)
+    cw      = dict(zip(classes.astype(int), weights))
+    if 1 in cw and boost != 1.0:
+        cw[1] = cw[1] * boost
+    sw = np.array([cw.get(int(y), 1.0) for y in ytr])
+
+    m = lgb.LGBMClassifier(
+        n_estimators=200, num_leaves=31, learning_rate=0.05,
+        subsample=0.8, colsample_bytree=0.8,
+        random_state=RANDOM_STATE, verbose=-1, n_jobs=2,
+    )
+    m.fit(Xtr, ytr, sample_weight=sw)
+    y_pred = m.predict(Xte)
+
+    recalls, precisions = {}, {}
+    for cls, lbl in [(0, "DOWN"), (1, "SIDEWAYS"), (2, "UP")]:
+        mask_t = yte == cls
+        mask_p = y_pred == cls
+        recalls[lbl]    = float(np.mean(y_pred[mask_t] == cls)) if mask_t.sum() > 0 else 0.0
+        precisions[lbl] = float(np.mean(yte[mask_p]  == cls))   if mask_p.sum()  > 0 else 0.0
+    return recalls, precisions
+
+
 def _get_default_metal_hyperparams() -> dict:
     """Fixed reasonable hyperparams for Silver/Platinum (skips Optuna for speed)."""
     return {
@@ -737,7 +771,8 @@ def _get_default_metal_hyperparams() -> dict:
 
 
 def train_metal_model(ticker: str, metal_name: str,
-                      progress_callback=None) -> dict | None:
+                      progress_callback=None,
+                      force_sideways_boost: float | None = None) -> dict | None:
     """
     Train a signal model for Silver or Platinum using the same pipeline as Gold
     but with default hyperparams (no Optuna) for speed (~5 min per metal).
@@ -775,8 +810,13 @@ def train_metal_model(ticker: str, metal_name: str,
     clf_target  = ("Target_Direction" if "Target_Direction" in df.columns
                    else "Target_Signal")
     feat_cols   = get_feature_columns(df)
-    keep        = feat_cols + [clf_target, "Target_Close"]
-    available   = df[[c for c in keep if c in df.columns]].dropna()
+
+    # Preserve full df width — Close, ATR, and regime must reach train_all_models()
+    # so classify_regime() can route rows into regime-conditional models.
+    # Drop rows only where training-critical columns (features + targets) have NaN.
+    key_cols   = feat_cols + [clf_target, "Target_Close"]
+    na_mask    = df[[c for c in key_cols if c in df.columns]].isna().any(axis=1)
+    available  = df[~na_mask]
 
     if len(available) < 200:
         log(f"Insufficient usable rows for {metal_name} "
@@ -797,12 +837,43 @@ def train_metal_model(ticker: str, metal_name: str,
         return None
 
     _regime_counts = {}
-    if "regime" in df.columns:
+    if "regime" in available.columns:
         for _r in ["high_vol", "trending", "neutral"]:
-            _regime_counts[_r] = int(
-                (df["regime"].iloc[:split] == _r).sum())
+            _regime_counts[_r] = int((train_df["regime"] == _r).sum())
         log("Regime counts — "
             + " · ".join(f"{r}={n}" for r, n in _regime_counts.items()))
+
+    # ── Per-metal sideways_weight_boost search (or forced value) ─────────────
+    Xtr_c = train_df[feat_cols].values
+    ytr_c = train_df[clf_target].values.astype(int)
+    Xte_c = test_df[feat_cols].values
+    yte_c = test_df[clf_target].values.astype(int)
+
+    if force_sideways_boost is not None:
+        best_boost = force_sideways_boost
+        log(f"sideways_weight_boost forced to {best_boost} for {metal_name} (search skipped)")
+    else:
+        # Use a fast single-LGB probe to find the smallest boost that lifts
+        # SIDEWAYS recall to ≥ 20 % without collapsing DOWN or UP below 15 %.
+        _BOOST_GRID = [1.0, 1.3, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0]
+        _SIDE_FLOOR = 0.20
+        _DIR_FLOOR  = 0.15
+        log(f"Probing sideways_weight_boost for {metal_name} "
+            f"(grid: {_BOOST_GRID})…")
+        best_boost = _BOOST_GRID[-1]
+        for _b in _BOOST_GRID:
+            _r, _p = _probe_sideways_boost(Xtr_c, ytr_c, Xte_c, yte_c, _b)
+            log(f"  boost={_b:.1f}: SIDE={_r['SIDEWAYS']:.1%} | "
+                f"DOWN={_r['DOWN']:.1%} | UP={_r['UP']:.1%}")
+            if (_r['SIDEWAYS'] >= _SIDE_FLOOR
+                    and _r['DOWN'] >= _DIR_FLOOR
+                    and _r['UP']   >= _DIR_FLOOR):
+                best_boost = _b
+                break
+        else:
+            log(f"  No boost met both floors (SIDE≥{_SIDE_FLOOR:.0%}, "
+                f"DIR≥{_DIR_FLOOR:.0%}) — using boost={best_boost:.1f}")
+    log(f"-> Chosen sideways_weight_boost = {best_boost} for {metal_name}")
 
     log(f"Training {metal_name} ensemble (default hyperparams, fast mode)…")
     try:
@@ -811,41 +882,54 @@ def train_metal_model(ticker: str, metal_name: str,
             n_trials=10,
             pretrained_hyperparams=_get_default_metal_hyperparams(),
             fast_retrain=True,
-            sideways_weight_boost=1.0,
+            sideways_weight_boost=best_boost,
             progress_callback=log,
         )
     except Exception as exc:
         log(f"Ensemble training failed for {metal_name}: {exc}")
         return None
 
-    # Evaluate
+    # Evaluate — compute precision, recall, and F1 per class
     stk    = clf_r.get("Stacking", {})
-    y_true = np.array(stk.get("y_test",       []))
-    y_pred = np.array(stk.get("predictions",  []))
+    y_true = np.array(stk.get("y_test",      []))
+    y_pred = np.array(stk.get("predictions", []))
     overall = float(np.mean(y_true == y_pred)) if len(y_true) else 0.0
-    per_cls: dict = {}
+    per_cls_recall:    dict = {}
+    per_cls_precision: dict = {}
+    per_cls_f1:        dict = {}
     for cls, lbl in [(0, "DOWN"), (1, "SIDEWAYS"), (2, "UP")]:
-        mask = y_true == cls
-        per_cls[lbl] = (float(np.mean(y_pred[mask] == cls))
-                        if mask.sum() > 0 else 0.0)
+        mask_t = y_true == cls
+        mask_p = y_pred == cls
+        rec  = float(np.mean(y_pred[mask_t] == cls)) if mask_t.sum() > 0 else 0.0
+        prec = float(np.mean(y_true[mask_p] == cls)) if mask_p.sum() > 0 else 0.0
+        f1   = (2 * prec * rec / (prec + rec)) if (prec + rec) > 0 else 0.0
+        per_cls_recall[lbl]    = rec
+        per_cls_precision[lbl] = prec
+        per_cls_f1[lbl]        = f1
 
     log(f"{metal_name} accuracy: {overall:.1%} overall | "
-        + " | ".join(f"{l}: {p:.1%}" for l, p in per_cls.items()))
+        + " | ".join(
+            f"{l}: rec={per_cls_recall[l]:.1%} prec={per_cls_precision[l]:.1%}"
+            for l in ["DOWN", "SIDEWAYS", "UP"]))
 
     return {
-        "ticker":        ticker,
-        "metal_name":    metal_name,
-        "reg_results":   reg_r,
-        "clf_results":   clf_r,
-        "feature_cols":  feat,
-        "stack_reg":     sr,
-        "stack_clf":     sc,
-        "thresholds":    {"threshold_down": 0.25, "threshold_up": 0.38},
-        "trained_at":    _dt.now().isoformat(),
-        "n_train":       n_train,
-        "n_test":        n_test,
-        "overall_acc":   overall,
-        "per_class_acc": per_cls,
+        "ticker":              ticker,
+        "metal_name":          metal_name,
+        "reg_results":         reg_r,
+        "clf_results":         clf_r,
+        "feature_cols":        feat,
+        "stack_reg":           sr,
+        "stack_clf":           sc,
+        "thresholds":          {"threshold_down": 0.25, "threshold_up": 0.38},
+        "trained_at":          _dt.now().isoformat(),
+        "n_train":             n_train,
+        "n_test":              n_test,
+        "overall_acc":         overall,
+        "per_class_acc":       per_cls_recall,       # backward-compat alias (= recall)
+        "per_class_recall":    per_cls_recall,
+        "per_class_precision": per_cls_precision,
+        "per_class_f1":        per_cls_f1,
+        "sideways_weight_boost": best_boost,
     }
 
 

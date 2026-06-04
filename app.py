@@ -359,7 +359,9 @@ if "show_dashboard" not in st.session_state:
 if "selected_metal" not in st.session_state:
     st.session_state.selected_metal = "🥇 Gold (XAU)"
 for _mk in ("silver_metal_bundle", "platinum_metal_bundle",
-            "silver_signal", "platinum_signal"):
+            "silver_signal", "platinum_signal",
+            "silver_morning_brief", "platinum_morning_brief",
+            "silver_ai_explanation", "platinum_ai_explanation"):
     if _mk not in st.session_state:
         st.session_state[_mk] = None
 
@@ -789,6 +791,43 @@ if st.button("← Back to overview", key="back_btn"):
 st.title("🏅 APEX Metals AI — Decision Intelligence")
 st.caption("⚠️ Personal research only · NOT financial advice · Past performance does not guarantee future results")
 
+# ── Shared: Anthropic API key (Gold / Silver / Platinum Morning Brief) ───────
+_anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+
+# ── Shared: Price-header renderer ─────────────────────────────────────────────
+_PEGGED_CCYS = {"USD", "AED", "JOD", "SAR"}
+
+def _render_price_header(col, metal_name, metal_sym,
+                          price_usd, prev_usd,
+                          sel_ccy, fx_rate, fx_symbol,
+                          fx_uae_time, price_source):
+    """USD-primary price header. Delta sign precedes $ so Streamlit reads it correctly.
+    Secondary caption shows sel_ccy converted price (no %) when sel_ccy != USD."""
+    label = f"{metal_name} ({metal_sym}/USD)"
+    if price_usd is None or prev_usd is None or prev_usd == 0:
+        col.metric(label, "—")
+        if price_source:
+            col.caption(f"📡 {price_source}")
+        return
+    chg_usd = price_usd - prev_usd
+    chgp    = chg_usd / prev_usd * 100
+    # Sign character must lead the delta string so Streamlit infers arrow/color correctly.
+    sign       = "+" if chg_usd >= 0 else "-"
+    delta_disp = f"{sign}${abs(chg_usd):,.2f} ({chgp:+.2f}%)"
+    col.metric(label, f"${price_usd:,.2f}", delta_disp)
+    if sel_ccy != "USD":
+        price_ccy = price_usd * fx_rate
+        if sel_ccy == "JPY":
+            col.caption(f"≈ ¥{price_ccy:,.0f}")
+        elif fx_symbol:
+            col.caption(f"≈ {fx_symbol}{price_ccy:,.2f}")
+        else:
+            col.caption(f"≈ {sel_ccy} {price_ccy:,.2f}")
+        if sel_ccy not in _PEGGED_CCYS and fx_uae_time:
+            col.caption(f"FX rate as of {fx_uae_time} UAE")
+    if price_source:
+        col.caption(f"📡 {price_source}")
+
 # ── Metal selector ────────────────────────────────────────────────────────────
 selected_metal = st.radio(
     "Select Metal",
@@ -798,21 +837,23 @@ selected_metal = st.radio(
 )
 st.session_state.selected_metal = selected_metal
 
-# ── Silver / Platinum — 6A price display + 6B signal ──────────────────────────
+# ── Silver / Platinum — Full Dashboard (6A daily change + 6C) ─────────────────
 if selected_metal != "🥇 Gold (XAU)":
     _is_silver   = (selected_metal == "🥈 Silver (XAG)")
-    _met_ticker  = "SI=F"  if _is_silver else "PL=F"
-    _met_name    = "Silver" if _is_silver else "Platinum"
-    _met_lbl     = "Silver (XAG/USD)" if _is_silver else "Platinum (XPT/USD)"
-    _met_color   = "#a0b0be" if _is_silver else "#c4a0f0"
-    _met_bnd_key = "silver_metal_bundle"  if _is_silver else "platinum_metal_bundle"
-    _met_sig_key = "silver_signal"        if _is_silver else "platinum_signal"
+    _met_ticker  = "SI=F"     if _is_silver else "PL=F"
+    _met_name    = "Silver"   if _is_silver else "Platinum"
+    _met_symbol   = "XAG/USD"  if _is_silver else "XPT/USD"
+    _met_sym_short = "XAG"     if _is_silver else "XPT"
+    _met_color   = "#a0b0be"  if _is_silver else "#c4a0f0"
+    _met_bnd_key = "silver_metal_bundle"   if _is_silver else "platinum_metal_bundle"
+    _met_sig_key = "silver_signal"         if _is_silver else "platinum_signal"
+    _met_brf_key = "silver_morning_brief"  if _is_silver else "platinum_morning_brief"
+    _met_exl_key = "silver_ai_explanation" if _is_silver else "platinum_ai_explanation"
 
     # ── Currency selector ─────────────────────────────────────────────────────
     _CCY_LIST_M = ["AED 🇦🇪", "USD 🇺🇸", "JOD 🇯🇴", "GBP 🇬🇧", "EUR 🇪🇺",
                    "SAR 🇸🇦", "INR 🇮🇳", "JPY 🇯🇵", "CNY 🇨🇳"]
     _CCY_SYMS_M = {"USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥"}
-    _PEGGED_M   = {"USD", "AED", "JOD", "SAR"}
     _ccy_m_full = st.selectbox("Currency", _CCY_LIST_M, index=0,
                                key="ccy_selector", label_visibility="collapsed")
     _sel_ccy_m  = _ccy_m_full[:3]
@@ -820,8 +861,21 @@ if selected_metal != "🥇 Gold (XAU)":
     _fx_rates_m = _fx_data_m.get("rates", {"USD": 1.0, "AED": 3.6725})
     _rate_m     = _fx_rates_m.get(_sel_ccy_m, 1.0)
     _sym_m      = _CCY_SYMS_M.get(_sel_ccy_m, "")
+    _fx_ts_str_m = _fx_data_m.get("fetched_utc", "")
+    try:
+        _fx_uae_time_m = datetime.fromisoformat(_fx_ts_str_m).replace(
+            tzinfo=timezone.utc).astimezone(_UAE_TZ).strftime("%H:%M")
+    except Exception:
+        _fx_uae_time_m = ""
 
     _av_key_m = st.secrets.get("ALPHA_VANTAGE_API_KEY", av_key_input)
+
+    # ── Load OHLCV data once (chart + daily change + DIC features) ───────────
+    _mdf = pd.DataFrame()
+    try:
+        _mdf = _load_metal_data(_met_ticker, st.session_state.refresh_key)
+    except Exception:
+        pass
 
     # ── Live price (waterfall) ────────────────────────────────────────────────
     _met_price, _met_src = None, "unavailable"
@@ -833,28 +887,57 @@ if selected_metal != "🥇 Gold (XAU)":
     except Exception:
         pass
 
-    # Gold price (for ratio / spread) — use last bar from gold df
+    # Fallback to last bar if waterfall failed
+    if _met_price is None and not _mdf.empty:
+        _met_price = float(_mdf["Close"].iloc[-1])
+        _met_src   = "yfinance (last close)"
+
+    # ── Daily change % (for Morning Brief signal data) ───────────────────────
+    _met_chgp, _met_prev_usd = None, None
+    if not _mdf.empty and len(_mdf) >= 2 and _met_price:
+        _met_prev_usd = float(_mdf["Close"].iloc[-2])
+        if _met_prev_usd > 0:
+            _met_chgp = (_met_price - _met_prev_usd) / _met_prev_usd * 100
+
+    # ── Gold price (for ratio/spread) ─────────────────────────────────────────
     _gold_ref = float(df["Close"].iloc[-1])
 
-    # ── Price formatting ──────────────────────────────────────────────────────
-    if _met_price:
-        _met_ccy = _met_price * _rate_m
-        if _sel_ccy_m == "JPY":
-            _met_disp = f"{_sym_m}{_met_ccy:,.0f}"
-        elif _sym_m:
-            _met_disp = f"{_sym_m}{_met_ccy:,.2f}"
-        else:
-            _met_disp = f"{_sel_ccy_m} {_met_ccy:,.2f}"
-        _met_usd_cap = None if _sel_ccy_m == "USD" else f"USD ${_met_price:,.2f}"
-    else:
-        _met_disp   = "—"
-        _met_usd_cap = None
+    # ── Bundle / signal ───────────────────────────────────────────────────────
+    _met_bnd = st.session_state.get(_met_bnd_key)
+    _met_sig = st.session_state.get(_met_sig_key)
+
+    # Auto-generate signal and regime if model loaded but signal missing
+    _met_regime_info = None
+    if not _mdf.empty:
+        try:
+            from src.regime import get_current_regime as _gcr_m
+            _met_regime_info = _gcr_m(_mdf)
+        except Exception:
+            pass
+        if _met_bnd is not None and _met_sig is None:
+            try:
+                from src.signals import generate_latest_signal as _gls_m
+                _msig = _gls_m(
+                    _mdf,
+                    _met_bnd["reg_results"],
+                    _met_bnd["clf_results"],
+                    _met_bnd["feature_cols"],
+                    stack_reg  = _met_bnd.get("stack_reg"),
+                    stack_clf  = _met_bnd.get("stack_clf"),
+                    regime_int = (_met_regime_info or {}).get("regime_int", 5),
+                )
+                st.session_state[_met_sig_key] = _msig
+                _met_sig = _msig
+            except Exception:
+                pass
 
     # ── KPI row ───────────────────────────────────────────────────────────────
-    _mki1, _mki2, _mki3, _mki4 = st.columns(4)
+    _mki1, _mki2, _mki3, _mki4, _mki5 = st.columns(5)
 
-    _mki1.metric(_met_lbl, _met_disp, delta=_met_usd_cap, delta_color="off")
-    _mki1.caption(f"📡 {_met_src}")
+    _render_price_header(_mki1, _met_name, _met_sym_short,
+                          _met_price, _met_prev_usd,
+                          _sel_ccy_m, _rate_m, _sym_m,
+                          _fx_uae_time_m, _met_src)
 
     if _is_silver and _met_price and _gold_ref:
         _gsr = _gold_ref / _met_price
@@ -862,39 +945,14 @@ if selected_metal != "🥇 Gold (XAU)":
                      else "⬇️ Gold historically cheap" if _gsr < 50 else "")
         _mki2.metric("Gold/Silver Ratio", f"{_gsr:.1f}",
                      delta=_gsr_flag or "Historical avg: ~65", delta_color="off")
-        _mki2.caption("GSR > 80 = silver cheap historically · GSR < 50 = gold cheap")
+        _mki2.caption("GSR > 80 = silver cheap · GSR < 50 = gold cheap")
     elif not _is_silver and _met_price and _gold_ref:
         _ptg = _gold_ref - _met_price
         _mki2.metric("Gold Premium vs Platinum", f"${_ptg:,.0f}",
                      delta="Normally platinum > gold (inverted)", delta_color="off")
 
-    # Signal card (populated below after model check)
-    _met_bnd = st.session_state.get(_met_bnd_key)
-    _met_sig = st.session_state.get(_met_sig_key)
-
-    # Auto-generate signal if model loaded but signal missing
-    if _met_bnd is not None and _met_sig is None:
-        try:
-            _mdf_inf = _load_metal_data(_met_ticker, st.session_state.refresh_key)
-            if not _mdf_inf.empty:
-                from src.signals import generate_latest_signal as _gls_m
-                from src.regime import get_current_regime as _gcr_m
-                _mri   = _gcr_m(_mdf_inf)
-                _msig  = _gls_m(
-                    _mdf_inf,
-                    _met_bnd["reg_results"],
-                    _met_bnd["clf_results"],
-                    _met_bnd["feature_cols"],
-                    stack_reg  = _met_bnd.get("stack_reg"),
-                    stack_clf  = _met_bnd.get("stack_clf"),
-                    regime_int = (_mri or {}).get("regime_int", 5),
-                )
-                st.session_state[_met_sig_key] = _msig
-                _met_sig = _msig
-        except Exception:
-            pass
-
     if _met_sig:
+        _ms_int  = _met_sig["signal_int"]
         _ms_clr  = _met_sig["signal_color"]
         _ms_lbl  = _met_sig["signal_label"]
         _ms_emi  = _met_sig["signal_emoji"]
@@ -919,70 +977,458 @@ if selected_metal != "🥇 Gold (XAU)":
         )
         _mki4.metric("Confidence", "—")
 
+    if _met_regime_info:
+        _mrc   = _met_regime_info["regime_color"]
+        _mrlbl = _met_regime_info["regime_label"]
+        _mremi = _met_regime_info.get("regime_emoji", "")
+        _mki5.markdown(
+            f"""<div style="border:2px solid {_mrc};border-radius:10px;
+                padding:14px;text-align:center;height:80px">
+                <div style="font-size:0.72em;color:#aaa;margin-bottom:4px">Market Regime</div>
+                <div style="font-size:1.4em;font-weight:bold;color:{_mrc}">
+                    {_mremi} {_mrlbl}</div></div>""",
+            unsafe_allow_html=True,
+        )
+    else:
+        _mki5.metric("Market Regime", "—")
+
+    _met_last_bar = (str(_mdf.index[-1])[:10] if not _mdf.empty else "—")
+    st.caption(f"Last bar: {_met_last_bar}")
+
+    # ── SIDEWAYS low-reliability notice ───────────────────────────────────────
+    if _met_sig and _met_sig.get("signal_int") == 1:
+        _side_note = (
+            "Silver: ensemble SIDEWAYS recall ~10% on held-out test — "
+            "suppressed by meta-learner (single-LGB probe hits 25.6% but stacking averages it out)."
+            if _is_silver else
+            "Platinum: SIDEWAYS structurally not separable with current 150 features (~7% recall). "
+            "This is a directional-leaning model."
+        )
+        st.warning(
+            f"⚠️ **SIDEWAYS — low-reliability signal for {_met_name}.** {_side_note}  \n"
+            "Use the confidence / no-trade / consensus gates in the Decision Intelligence "
+            "Centre below to navigate choppy days. Do not act on SIDEWAYS alone."
+        )
+
+    # ── Probability breakdown ─────────────────────────────────────────────────
+    if _met_sig and _met_sig.get("proba_vec"):
+        _mpv = _met_sig["proba_vec"]
+        st.divider()
+        st.subheader("Directional Probability")
+        _mpb1, _mpb2, _mpb3 = st.columns(3)
+        _mpb1.metric("🔴 DOWN",     f"{_mpv[0]*100:.1f}%", delta_color="off")
+        _mpb2.metric("⚪ SIDEWAYS", f"{_mpv[1]*100:.1f}%", delta_color="off")
+        _mpb3.metric("🟢 UP",       f"{_mpv[2]*100:.1f}%", delta_color="off")
+        if _met_sig.get("filter_reason"):
+            st.warning(f"⛔ Signal filtered: {_met_sig['filter_reason']}")
+
+    # ── Signal Strength ───────────────────────────────────────────────────────
+    if _met_sig:
+        _mss_int  = _met_sig["signal_int"]
+        _mss_conf = _met_sig.get("confidence_pct", 0)
+        _mss_lbl  = _met_sig.get("signal_label", "SIDEWAYS")
+        _mss_color = "#00CC88" if _mss_int == 2 else ("#FF4B4B" if _mss_int == 0 else "#888888")
+        if _mss_conf <= 40:   _mss_grade = "Weak — Exercise Caution"
+        elif _mss_conf <= 60: _mss_grade = "Moderate — Monitor Closely"
+        elif _mss_conf <= 80: _mss_grade = "Strong — Signal Worth Considering"
+        else:                  _mss_grade = "Very Strong — High Conviction Signal"
+        if _mss_conf < 55:
+            _mss_ctx = "⚠️ Low conviction — model sees balanced probabilities."
+            _mss_ctx_color = "#FFA500"
+        elif _mss_conf <= 70:
+            _mss_ctx = "📊 Moderate conviction — signal has edge but is not conclusive."
+            _mss_ctx_color = "#00BFFF"
+        else:
+            _mss_ctx = "🎯 High conviction — model strongly favours this direction."
+            _mss_ctx_color = "#00CC88"
+        st.divider()
+        st.subheader("Signal Strength")
+        st.markdown(
+            f"""<div style="margin-bottom:6px;font-size:0.85em;color:#aaa;">
+                Confidence &nbsp;·&nbsp;
+                <span style="color:{_mss_color};font-weight:bold;">{_mss_conf:.1f}%</span>
+            </div>
+            <div style="background:#1e2130;border-radius:6px;height:18px;
+                        width:100%;overflow:hidden;">
+                <div style="background:{_mss_color};width:{_mss_conf:.1f}%;
+                            height:100%;border-radius:6px;"></div>
+            </div>
+            <div style="margin-top:8px;font-size:0.9em;color:{_mss_ctx_color};
+                        font-weight:500;">{_mss_ctx}</div>
+            <div style="margin-top:8px;font-size:0.95em;
+                        color:{_mss_color};font-weight:600;">{_mss_grade}</div>
+            <div style="margin-top:10px;font-size:0.78em;color:#888;font-style:italic;">
+                Signal strength reflects model confidence only — not financial advice.
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    # ── Morning Brief (metal) ─────────────────────────────────────────────────
+    if _met_sig and not _mdf.empty:
+        with st.expander(f"🌅 {_met_name} Morning Brief", expanded=True):
+            if not _anthropic_key:
+                st.info("Configure `ANTHROPIC_API_KEY` in secrets to enable the morning brief.")
+            else:
+                _m_rsi   = float(_mdf["RSI"].iloc[-1])       if "RSI"        in _mdf.columns else 50.0
+                _m_macd  = float(_mdf["MACD"].iloc[-1])      if "MACD"       in _mdf.columns else 0.0
+                _m_msig2 = float(_mdf["MACD_Signal"].iloc[-1]) if "MACD_Signal" in _mdf.columns else 0.0
+                _m_bbp   = float(_mdf["BB_PctB"].iloc[-1])   if "BB_PctB"    in _mdf.columns else 0.5
+                _m_atr_v = float(_mdf["ATR"].iloc[-1])       if "ATR"        in _mdf.columns else (_met_price or 1) * 0.01
+                _m_atr_p = _m_atr_v / (_met_price or 1) * 100
+                _m_pv    = _met_sig.get("proba_vec") or [0.33, 0.34, 0.33]
+                _m_reg_lbl = (_met_regime_info or {}).get("regime_label", "Neutral")
+                _m_sig_data = {
+                    "signal":           _met_sig["signal_label"],
+                    "confidence":       _met_sig.get("confidence_pct", 50) / 100,
+                    "gold_price":       _met_price or 0,
+                    "aed_price":        (_met_price or 0) * 3.6725,
+                    "price_change_pct": _met_chgp or 0.0,
+                    "rsi":              _m_rsi,
+                    "macd":             _m_macd,
+                    "macd_signal":      _m_msig2,
+                    "bb_pctb":          _m_bbp,
+                    "atr_pct":          _m_atr_p,
+                    "vix":              20.0,
+                    "market_regime":    _m_reg_lbl,
+                    "top_features":     [],
+                    "directional_probs": {
+                        "UP":       _m_pv[2] if len(_m_pv) > 2 else 0.33,
+                        "SIDEWAYS": _m_pv[1] if len(_m_pv) > 1 else 0.34,
+                        "DOWN":     _m_pv[0],
+                    },
+                    "last_bar_date": _met_last_bar,
+                }
+                _m_today_str = datetime.now(_UAE_TZ).strftime("%Y-%m-%d")
+                _m_cached_brief = st.session_state.get(_met_brf_key)
+                _m_brief_stale  = (
+                    _m_cached_brief is None
+                    or _m_cached_brief.get("date") != _m_today_str
+                )
+                _m_brief_cols = st.columns([4, 1])
+                if _m_brief_cols[1].button("🔄 Regenerate",
+                                            key=f"regen_{_met_name.lower()}_brief_btn"):
+                    st.session_state[_met_brf_key] = None
+                    _m_brief_stale = True
+                if _m_brief_stale:
+                    with st.spinner(f"Generating {_met_name} brief with Claude AI…"):
+                        from src.explainer import generate_morning_brief as _gmb_m
+                        _m_brief_txt = _gmb_m(
+                            _m_sig_data, _m_today_str, _anthropic_key,
+                            metal_name=_met_name, metal_symbol=_met_symbol,
+                        )
+                        if _m_brief_txt:
+                            st.session_state[_met_brf_key] = {
+                                "content": _m_brief_txt,
+                                "date":    _m_today_str,
+                            }
+                _m_cached_brief = st.session_state.get(_met_brf_key)
+                if _m_cached_brief and _m_cached_brief.get("content"):
+                    _m_brief_cols[0].caption(
+                        f"Generated {datetime.now(_UAE_TZ).strftime('%H:%M UAE')} · "
+                        f"Powered by Claude AI — Not financial advice"
+                    )
+                    st.markdown(sanitize_for_markdown(_m_cached_brief["content"]))
+                elif _anthropic_key:
+                    st.warning("Brief generation failed — check ANTHROPIC_API_KEY.")
+
     # ── 90-day OHLC chart ─────────────────────────────────────────────────────
     st.divider()
     st.subheader(f"{_met_name} Price — Last 90 Days")
-    try:
-        _mdf_c = _load_metal_data(_met_ticker, st.session_state.refresh_key)
-        if not _mdf_c.empty:
-            _mrec = _mdf_c.tail(90)
-            _mfig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                  row_heights=[0.78, 0.22], vertical_spacing=0.03)
-            _mfig.add_trace(go.Candlestick(
-                x=_mrec.index,
-                open=_mrec["Open"], high=_mrec["High"],
-                low=_mrec["Low"],  close=_mrec["Close"],
-                name="OHLC",
-                increasing_line_color="#00CC88",
-                decreasing_line_color="#FF4B4B",
-            ), row=1, col=1)
-            for _slbl, _scol, _sclr in [("SMA 20", "SMA_20", "#FFA500"),
-                                         ("SMA 50", "SMA_50", "#00BFFF")]:
-                if _scol in _mrec.columns:
-                    _mfig.add_trace(go.Scatter(
-                        x=_mrec.index, y=_mrec[_scol],
-                        name=_slbl, line=dict(color=_sclr, width=1.2),
-                    ), row=1, col=1)
-            if "Volume" in _mrec.columns:
-                _mfig.add_trace(go.Bar(
-                    x=_mrec.index, y=_mrec["Volume"],
-                    name="Volume", marker_color="rgba(150,150,200,0.35)",
-                    showlegend=False,
-                ), row=2, col=1)
-            _mfig.update_layout(**_PLT, height=440,
-                                xaxis_rangeslider_visible=False,
-                                legend=dict(orientation="h", y=1.02))
-            _mfig.update_xaxes(showgrid=False)
-            _mfig.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
-            st.plotly_chart(_mfig, width="stretch")
-        else:
-            st.warning(f"Could not load {_met_name} historical data for chart.")
-    except Exception as _mce:
-        st.warning(f"Chart unavailable: {_mce}")
+    if not _mdf.empty:
+        _mrec = _mdf.tail(90)
+        _mfig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                              row_heights=[0.78, 0.22], vertical_spacing=0.03)
+        _mfig.add_trace(go.Candlestick(
+            x=_mrec.index,
+            open=_mrec["Open"], high=_mrec["High"],
+            low=_mrec["Low"],  close=_mrec["Close"],
+            name="OHLC",
+            increasing_line_color="#00CC88",
+            decreasing_line_color="#FF4B4B",
+        ), row=1, col=1)
+        for _slbl, _scol, _sclr in [("SMA 20", "SMA_20", "#FFA500"),
+                                     ("SMA 50", "SMA_50", "#00BFFF")]:
+            if _scol in _mrec.columns:
+                _mfig.add_trace(go.Scatter(
+                    x=_mrec.index, y=_mrec[_scol],
+                    name=_slbl, line=dict(color=_sclr, width=1.2),
+                ), row=1, col=1)
+        if "Volume" in _mrec.columns:
+            _mfig.add_trace(go.Bar(
+                x=_mrec.index, y=_mrec["Volume"],
+                name="Volume", marker_color="rgba(150,150,200,0.35)",
+                showlegend=False,
+            ), row=2, col=1)
+        _mfig.update_layout(**_PLT, height=440,
+                            xaxis_rangeslider_visible=False,
+                            legend=dict(orientation="h", y=1.02))
+        _mfig.update_xaxes(showgrid=False)
+        _mfig.update_yaxes(showgrid=True, gridcolor=GRID_CLR)
+        st.plotly_chart(_mfig, width="stretch")
+    else:
+        st.warning(f"Could not load {_met_name} historical data for chart.")
 
-    # ── Model status / training CTA ───────────────────────────────────────────
-    if _met_bnd:
-        _oa  = _met_bnd.get("overall_acc", 0)
-        _pc  = _met_bnd.get("per_class_acc", {})
-        _tat = _met_bnd.get("trained_at", "")[:10]
-        st.success(
-            f"✅ {_met_name} model trained {_tat} — "
-            f"Overall {_oa:.1%} | "
-            + " | ".join(f"{l}: {p:.1%}" for l, p in _pc.items())
+    # ── Decision Intelligence Centre (metals) ─────────────────────────────────
+    if _met_sig and _met_bnd and not _mdf.empty:
+        st.divider()
+        st.subheader("🎯 Decision Intelligence Centre")
+
+        _m_dic_sig  = _met_sig["signal_label"]
+        _m_dic_conf = (_met_sig.get("confidence_pct") or 50) / 100
+
+        # SIDEWAYS low-reliability warning inside DIC
+        if _m_dic_sig == "SIDEWAYS":
+            st.warning(
+                "⚠️ **SIDEWAYS signal — low reliability for this metal.**  \n"
+                + ("Silver: recall ~10% on test set. Suppressed by the ensemble meta-learner."
+                   if _is_silver else
+                   "Platinum: SIDEWAYS structurally not separable (~7% recall). Directional model only.")
+                + "  \nThe gates below (confidence / no-trade / consensus) are the correct "
+                "mechanism for navigating choppy days."
+            )
+
+        # Compute DIC inputs from metal OHLCV df
+        _m_dic_atr  = float(_mdf["ATR"].iloc[-1])     if "ATR"     in _mdf.columns else (_met_price or 1) * 0.01
+        _m_dic_rsi  = float(_mdf["RSI"].iloc[-1])     if "RSI"     in _mdf.columns else 50.0
+        _m_dic_bbp  = float(_mdf["BB_PctB"].iloc[-1]) if "BB_PctB" in _mdf.columns else 0.5
+
+        _m_rl = (_met_regime_info or {}).get("regime_label", "")
+        _m_dic_regime = (
+            "high_vol"  if ("vol" in _m_rl.lower() or "high" in _m_rl.lower()) else
+            "trending"  if "trend" in _m_rl.lower() else
+            "neutral"
         )
+
+        # Rolling accuracy from metal model test window
+        _m_dic_roll_acc, _m_dic_roll_src = 0.35, "default"
+        _m_stk = (_met_bnd.get("clf_results") or {}).get("Stacking", {})
+        _m_sy  = _m_stk.get("y_test")
+        _m_sp  = _m_stk.get("predictions")
+        if _m_sy is not None and _m_sp is not None:
+            _m_arr = (np.array(_m_sy) == np.array(_m_sp)).astype(int)
+            if len(_m_arr) >= 5:
+                _m_dic_roll_acc = float(_m_arr[-30:].mean())
+                _m_dic_roll_src = "test"
+
+        # No-trade score (same 5-condition gate as gold)
+        _m_dic_nt = 0
+        if _m_dic_conf < 0.50:                              _m_dic_nt += 1
+        if _met_sig.get("filter_reason"):                   _m_dic_nt += 1
+        if _m_dic_sig == "UP"   and _m_dic_rsi > 75:       _m_dic_nt += 1
+        if _m_dic_sig == "DOWN" and _m_dic_rsi < 25:       _m_dic_nt += 1
+        if _m_dic_bbp > 0.9 or _m_dic_bbp < 0.1:          _m_dic_nt += 1
+
+        # Classifier consensus from metal bundle's L1 models
+        _m_dic_votes, _m_dic_consensus = {}, 1.0
+        try:
+            _m_fc  = _met_bnd.get("feature_cols") or []
+            _m_X   = _mdf.dropna(subset=_m_fc).iloc[[-1]][_m_fc].values if _m_fc else None
+            if _m_X is not None:
+                for _m_mn in ["XGBoost", "LightGBM", "CatBoost"]:
+                    _m_mdl = (_met_bnd.get("clf_results") or {}).get(_m_mn, {}).get("model")
+                    if _m_mdl is not None:
+                        try:
+                            _m_dic_votes[_m_mn] = int(np.array(_m_mdl.predict(_m_X)).ravel()[0])
+                        except Exception:
+                            pass
+                if _m_dic_votes:
+                    _m_dic_consensus = (
+                        sum(1 for v in _m_dic_votes.values() if v == _met_sig["signal_int"])
+                        / len(_m_dic_votes)
+                    )
+        except Exception:
+            pass
+
+        # ── 5A: Verdict (same gate as gold) ──────────────────────────────────
+        _m_roll_lbl = {"test": "test set"}.get(_m_dic_roll_src, "")
+        _m_verdict, _m_v_emoji, _m_v_color, _m_v_for, _m_v_against = compute_decision_verdict(
+            signal=_m_dic_sig, confidence=_m_dic_conf, regime=_m_dic_regime,
+            rsi=_m_dic_rsi, bb_pctb=_m_dic_bbp,
+            rolling_accuracy=_m_dic_roll_acc, no_trade_score=_m_dic_nt,
+            classifier_consensus=_m_dic_consensus,
+            roll_source=_m_roll_lbl,
+        )
+        _m_v_bg = {"#22c55e": "#071507", "#f59e0b": "#161000", "#ef4444": "#160707"}
+        st.markdown(
+            f"""<div style="border:2px solid {_m_v_color};border-radius:14px;
+                padding:20px 24px;margin:8px 0 16px;
+                background:{_m_v_bg.get(_m_v_color, '#0d1218')};">
+                <div style="font-size:2.4em;font-weight:900;color:{_m_v_color};
+                    margin-bottom:4px">{_m_v_emoji}&nbsp;{_m_verdict}</div>
+                <div style="font-size:0.8em;color:#888;font-style:italic">
+                    Research framework only — not financial advice</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        _m_vc1, _m_vc2 = st.columns(2)
+        with _m_vc1:
+            st.markdown("**Supporting factors**")
+            for _m_r in _m_v_for:
+                st.markdown(f"✅ {_m_r}")
+            if not _m_v_for:
+                st.caption("*No strong supporting factors identified*")
+        with _m_vc2:
+            st.markdown("**Caution factors**")
+            for _m_r in _m_v_against:
+                st.markdown(f"⚠️ {_m_r}")
+            if not _m_v_against:
+                st.caption("*No caution factors identified*")
+
+        # ── 5B: ATR Research Zones ────────────────────────────────────────────
+        if _m_dic_sig in ("UP", "DOWN") and _met_price:
+            st.markdown("**📐 ATR Research Zones**")
+            _m_zones = compute_trade_zones(_met_price, _m_dic_sig, _m_dic_atr)
+            if _m_zones:
+                _m_z1, _m_z2, _m_z3, _m_z4 = st.columns(4)
+                _m_z1.metric("Entry Zone", _m_zones["entry"])
+                _m_z2.metric("Target",     _m_zones["target"])
+                _m_z3.metric("Stop",       _m_zones["stop"])
+                _m_z4.metric("R:R Ratio",  _m_zones["rr"], delta=f"ATR {_m_zones['atr']}")
+                st.caption(
+                    "⚠️ ATR-based research zones — analytical framework only. "
+                    "Not financial advice."
+                )
+
+        # ── 5C: Classifier Consensus ──────────────────────────────────────────
+        st.markdown("**🗳️ Classifier Consensus**")
+        if _m_dic_votes:
+            _m_n_mdls    = len(_m_dic_votes)
+            _m_pill_cols = st.columns(_m_n_mdls + 1)
+            for _m_pi, (_m_mn_p, _m_mv_p) in enumerate(_m_dic_votes.items()):
+                _m_mlbl = SIGNAL_LABELS.get(_m_mv_p, "?")
+                _m_mclr = SIGNAL_COLORS.get(_m_mv_p, "#888")
+                _m_pill_cols[_m_pi].markdown(
+                    f"<div style='text-align:center;background:#0d1218;"
+                    f"border:1px solid {_m_mclr};border-radius:8px;padding:10px 4px;'>"
+                    f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>{_m_mn_p}</div>"
+                    f"<div style='font-weight:700;color:{_m_mclr};font-size:1.1em'>{_m_mlbl}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            _m_n_agree2 = sum(1 for v in _m_dic_votes.values() if v == _met_sig["signal_int"])
+            if _m_n_agree2 == _m_n_mdls:
+                _m_cons_txt, _m_cons_clr = f"{_m_n_agree2}/{_m_n_mdls} unanimous ✅", "#22c55e"
+            elif _m_n_agree2 >= 2:
+                _m_cons_txt, _m_cons_clr = f"{_m_n_agree2}/{_m_n_mdls} majority ⚠️", "#f59e0b"
+            else:
+                _m_cons_txt, _m_cons_clr = f"{_m_n_agree2}/{_m_n_mdls} split ⚠️",    "#ef4444"
+            _m_pill_cols[-1].markdown(
+                f"<div style='text-align:center;background:#0d1218;"
+                f"border:1px solid {_m_cons_clr};border-radius:8px;padding:10px 4px;'>"
+                f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>Consensus</div>"
+                f"<div style='font-weight:700;color:{_m_cons_clr}'>{_m_cons_txt}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Train the model to see individual classifier votes.")
+
+    # ── Feature Importance ────────────────────────────────────────────────────
+    if _met_bnd:
+        with st.expander(f"📊 {_met_name} Feature Importance (Top 15)", expanded=False):
+            _m_fi_data, _m_fi_name = None, None
+            for _m_fn in ["XGBoost", "LightGBM", "CatBoost"]:
+                _m_fc_r = (_met_bnd.get("clf_results") or {}).get(_m_fn, {})
+                _m_fi   = _m_fc_r.get("feature_importance")
+                if _m_fi is not None and len(_m_fi) > 0:
+                    _m_fi_data, _m_fi_name = _m_fi, _m_fn
+                    break
+            _m_feat_cols = _met_bnd.get("feature_cols") or []
+            if _m_fi_data is not None and _m_feat_cols:
+                _m_fi_df = (
+                    pd.DataFrame({"Feature": _m_feat_cols[:len(_m_fi_data)],
+                                  "Importance": _m_fi_data})
+                    .sort_values("Importance", ascending=False)
+                    .head(15)
+                )
+                _m_fi_fig = go.Figure(go.Bar(
+                    x=_m_fi_df["Importance"], y=_m_fi_df["Feature"],
+                    orientation="h", marker_color=_met_color,
+                ))
+                _m_fi_fig.update_layout(
+                    **_PLT, height=420,
+                    yaxis=dict(autorange="reversed"),
+                    xaxis_title="Importance Score",
+                    margin=dict(l=180, r=20, t=30, b=40),
+                )
+                _m_fi_fig.update_xaxes(showgrid=True, gridcolor=GRID_CLR)
+                _m_fi_fig.update_yaxes(showgrid=False)
+                st.caption(f"Source: {_m_fi_name} classifier · top 15 of {len(_m_feat_cols)} features")
+                st.plotly_chart(_m_fi_fig, width="stretch")
+            else:
+                st.info("Feature importance data not available — train the model.")
+
+    # ── AI Signal Explanation ─────────────────────────────────────────────────
+    if _met_sig and not _mdf.empty:
+        with st.expander("🧠 AI Signal Explanation", expanded=False):
+            if not _anthropic_key:
+                st.info("Configure `ANTHROPIC_API_KEY` in secrets to enable.")
+            else:
+                try:
+                    from src.explainer import generate_signal_explanation as _gse_m
+                    _m_today_str2 = datetime.now(_UAE_TZ).strftime("%Y-%m-%d")
+                    _m_expl_sk = (
+                        f"{_met_sig['signal_label']}_"
+                        f"{_met_sig.get('confidence_pct', 0):.0f}_{_m_today_str2}"
+                    )
+                    _m_cached_expl = st.session_state.get(_met_exl_key)
+                    _m_expl_stale  = (
+                        _m_cached_expl is None
+                        or _m_cached_expl.get("sig_key") != _m_expl_sk
+                    )
+                    if _m_expl_stale:
+                        with st.spinner(f"Generating {_met_name} signal explanation…"):
+                            _m_expl_sd = {
+                                **(_m_sig_data if "_m_sig_data" in dir() else {}),
+                                "signal":    _met_sig["signal_label"],
+                                "confidence": _met_sig.get("confidence_pct", 50) / 100,
+                                "gold_price": _met_price or 0,
+                            }
+                            _m_expl_txt = _gse_m(_m_expl_sd, _anthropic_key)
+                            if _m_expl_txt:
+                                st.session_state[_met_exl_key] = {
+                                    "content": _m_expl_txt,
+                                    "sig_key": _m_expl_sk,
+                                }
+                    _m_cached_expl = st.session_state.get(_met_exl_key)
+                    if _m_cached_expl and _m_cached_expl.get("content"):
+                        st.markdown(_m_cached_expl["content"])
+                        st.caption("Powered by Claude AI — Not financial advice")
+                    elif _anthropic_key:
+                        st.warning("Explanation generation failed — check ANTHROPIC_API_KEY.")
+                except Exception as _m_expl_exc:
+                    st.info(f"AI explanation unavailable: {_m_expl_exc}")
+
+    # ── Model status ──────────────────────────────────────────────────────────
+    st.divider()
+    if _met_bnd:
+        _m_oa  = _met_bnd.get("overall_acc", 0)
+        _m_pc  = _met_bnd.get("per_class_recall", _met_bnd.get("per_class_acc", {}))
+        _m_pre = _met_bnd.get("per_class_precision", {})
+        _m_tat = _met_bnd.get("trained_at", "")[:10]
+        _m_boost = _met_bnd.get("sideways_weight_boost", "—")
+        st.success(
+            f"✅ {_met_name} model trained {_m_tat} — Overall {_m_oa:.1%} | "
+            + " | ".join(
+                f"{l}: rec={_m_pc.get(l,0):.0%} pre={_m_pre.get(l,0):.0%}"
+                for l in ["DOWN", "SIDEWAYS", "UP"]
+            )
+        )
+        _side_rel = ("low (recall~10%, suppressed by meta-learner)" if _is_silver
+                     else "very low (structural — features don't separate this class)")
         st.caption(
-            f"Trained on {_met_bnd['n_train']} bars, evaluated on {_met_bnd['n_test']} bars. "
-            "Retrain via sidebar if you want to refresh."
+            f"Trained on {_met_bnd.get('n_train','?')} bars · "
+            f"tested on {_met_bnd.get('n_test','?')} bars · "
+            f"boost={_m_boost} · SIDEWAYS reliability: {_side_rel}"
         )
     else:
         st.info(
             f"**{_met_name} signal model not yet trained.**  \n"
             f"Click **{'🥈 Train Silver Model' if _is_silver else '💎 Train Platinum Model'}** "
-            f"in the sidebar. Training takes ~5 minutes."
+            f"in the sidebar. Training takes ~5–10 minutes."
         )
+    st.caption("⚠️ Personal research only — NOT financial advice")
 
-    st.caption("⚠️ Personal research only — NOT financial advice · "
-               "Full dashboard (Morning Brief, DIC, portfolio) in Phase 6C")
     st.stop()
 
 # ── KPI row ───────────────────────────────────────────────────────────────────
@@ -1021,29 +1467,16 @@ try:
 except Exception:
     _fx_uae_time = ""
 
-_rate     = _fx_rates.get(_sel_ccy, 1.0)
-_cur_ccy  = cur * _rate
-_chg_ccy  = chg * _rate
-_sym      = _CCY_SYMBOLS.get(_sel_ccy, "")
-if _sel_ccy == "JPY":
-    _price_disp = f"{_sym}{_cur_ccy:,.0f}"
-    _delta_disp = f"{_chg_ccy:+,.0f} ({chgp:+.2f}%)"
-elif _sym:
-    _price_disp = f"{_sym}{_cur_ccy:,.2f}"
-    _delta_disp = f"{_chg_ccy:+.2f} ({chgp:+.2f}%)"
-else:
-    _price_disp = f"{_sel_ccy} {_cur_ccy:,.2f}"
-    _delta_disp = f"{_chg_ccy:+.2f} ({chgp:+.2f}%)"
+_rate = _fx_rates.get(_sel_ccy, 1.0)
+_sym  = _CCY_SYMBOLS.get(_sel_ccy, "")
+_prev_usd_gold = last_close if _live_price is not None else prev_close
 
 c1, c2, c3, c4 = st.columns(4)
 
-with c1:
-    st.metric(f"Gold (XAU/{_sel_ccy})", _price_disp, _delta_disp)
-    if _sel_ccy != "USD":
-        st.caption(f"USD ${cur:,.2f}")
-    if _sel_ccy not in _PEGGED and _fx_uae_time:
-        st.caption(f"FX rate as of {_fx_uae_time} UAE")
-    st.caption(f"📡 {_price_source}")
+_render_price_header(c1, "Gold", "XAU",
+                      cur, _prev_usd_gold,
+                      _sel_ccy, _rate, _sym,
+                      _fx_uae_time, _price_source)
 
 if signal:
     sig_clr  = signal["signal_color"]
@@ -1280,8 +1713,6 @@ with st.expander("🔍 Data Sources & Integrity", expanded=False):
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Build signal_data dict for Claude API calls ───────────────────────────────
-_anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-
 _signal_data_for_api = None
 if signal:
     try:
