@@ -1568,6 +1568,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+if st.session_state.get("alert_status") == "no_alert" and signal:
+    _sig_int = signal.get("signal_int")
+    _conf = signal.get("confidence_pct", 0) or 0
+    _fr = signal.get("filter_reason")
+    _reasons = []
+    if _sig_int == 1:
+        _reasons.append("signal is SIDEWAYS (alerts fire only on UP or DOWN)")
+    if _conf <= 55:
+        _reasons.append(f"confidence {_conf:.0f}% is below the 55% alert threshold")
+    if _fr:
+        _reasons.append(f"a filter is active ({_fr})")
+    if _reasons:
+        st.caption("Alert held back because: " + "; ".join(_reasons) + ".")
+
 _ra_status = st.session_state.risk_alert_status or ""
 if not _ra_status:
     _ra_icon, _ra_color, _ra_text = "🔔", "#888888", "Risk monitor: ready"
