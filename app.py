@@ -2423,7 +2423,7 @@ with st.expander("📊 Feature Importance (Top 15)", expanded=False):
         _n_base_clf = 4 if (_lstm_active and _lstm_files_ok) else 3
         _ensemble_label = (
             f"{_n_base_clf} base classifiers (XGBoost · LightGBM · CatBoost · LSTM) "
-            f"+ L2 meta-classifier = {_n_base_clf + 3} model ensemble"
+            f"+ L2 meta-classifier = {_n_base_clf + 1} model ensemble"
             if _lstm_active and _lstm_files_ok
             else "3 base classifiers (XGBoost · LightGBM · CatBoost) + L2 meta-classifier"
         )
