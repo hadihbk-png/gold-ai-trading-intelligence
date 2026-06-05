@@ -26,7 +26,7 @@ _FIXED_PEGS = {
 # ── Approximate fallback live rates (used if yfinance fetch fails) ─────────────
 _FX_FALLBACKS = {"GBP": 0.787, "EUR": 0.926, "INR": 83.5, "JPY": 150.0, "CNY": 7.25}
 
-_CACHE_STALE_DAYS = 3  # treat disk cache as stale if last bar is older than this many calendar days
+_CACHE_STALE_DAYS = 1  # treat disk cache as stale if last bar is older than this many calendar days
 
 
 def _is_cache_stale(df: pd.DataFrame) -> bool:
@@ -143,8 +143,8 @@ def get_live_spot_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
             price = float(data.get("gold") or data.get("price") or 0)
             if price > 100:
                 return price, "Kitco Spot Price (live)"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning – metals.live: {e}")
 
     # Method C: Alpha Vantage (free key from alphavantage.co)
     if av_api_key:
@@ -163,22 +163,29 @@ def get_live_spot_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
             price = float(rate_info.get("5. Exchange Rate", 0))
             if price > 100:
                 return price, "Alpha Vantage (live)"
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning – Alpha Vantage: {e}")
 
     # Method D: Twelve Data (existing fallback)
     if td_api_key:
+        _td_resp = None
         try:
-            resp = requests.get(
+            _td_resp = requests.get(
                 "https://api.twelvedata.com/price",
                 params={"symbol": "XAU/USD", "apikey": td_api_key},
                 timeout=5,
             )
-            price = float(resp.json()["price"])
+            price = float(_td_resp.json()["price"])
             if price > 100:
                 return price, "Twelve Data (live)"
-        except Exception:
-            pass
+        except Exception as e:
+            _td_status = getattr(_td_resp, "status_code", "N/A")
+            _td_body = ""
+            try:
+                _td_body = _td_resp.text[:300]
+            except Exception:
+                pass
+            print(f"Warning – Twelve Data: {e} | HTTP {_td_status} | body: {_td_body}")
 
     # Method E: yfinance last resort
     return None, "Market Data (delayed)"
@@ -192,13 +199,18 @@ def get_lbma_fix() -> dict:
         gld = _flatten(gld)
         if gld.empty or "Open" not in gld.columns or "Close" not in gld.columns:
             return {}
+        # Drop rows where Open or Close is NaN (can happen for in-progress session)
+        gld = gld.dropna(subset=["Open", "Close"])
+        if gld.empty:
+            return {}
         last = gld.iloc[-1]
         return {
             "am":   round(float(last["Open"])  * 10, 2),
             "pm":   round(float(last["Close"]) * 10, 2),
             "date": gld.index[-1].strftime("%Y-%m-%d"),
         }
-    except Exception:
+    except Exception as e:
+        print(f"Warning – get_lbma_fix (GLD proxy): {e}")
         return {}
 
 

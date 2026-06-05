@@ -4,6 +4,7 @@ __pycache__/
 .streamlit/secrets.txt
 catboost_info/
 *.tmp
+*.bak
 .claude/
 data/*.pkl
 data/risk_alert_state.json
