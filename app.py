@@ -1328,7 +1328,7 @@ if selected_metal != "🥇 Gold (XAU)":
         st.markdown("**🗳️ Classifier Consensus**")
         if _m_dic_votes:
             _m_n_mdls    = len(_m_dic_votes)
-            _m_pill_cols = st.columns(_m_n_mdls + 1)
+            _m_pill_cols = st.columns(_m_n_mdls + 2)       # +2: Signal Backing + Model Agreement
             for _m_pi, (_m_mn_p, _m_mv_p) in enumerate(_m_dic_votes.items()):
                 _m_mlbl = SIGNAL_LABELS.get(_m_mv_p, "?")
                 _m_mclr = SIGNAL_COLORS.get(_m_mv_p, "#888")
@@ -1347,13 +1347,35 @@ if selected_metal != "🥇 Gold (XAU)":
                 _m_cons_txt, _m_cons_clr = f"{_m_n_agree2}/{_m_n_mdls} majority ⚠️", "#f59e0b"
             else:
                 _m_cons_txt, _m_cons_clr = f"{_m_n_agree2}/{_m_n_mdls} split ⚠️",    "#ef4444"
-            _m_pill_cols[-1].markdown(
+            _m_pill_cols[-2].markdown(
                 f"<div style='text-align:center;background:#0d1218;"
                 f"border:1px solid {_m_cons_clr};border-radius:8px;padding:10px 4px;'>"
-                f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>Consensus</div>"
+                f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>Signal Backing</div>"
                 f"<div style='font-weight:700;color:{_m_cons_clr}'>{_m_cons_txt}</div>"
                 f"</div>",
                 unsafe_allow_html=True,
+            )
+            _m_pill_cols[-2].caption(
+                "Share of base models (XGBoost / LightGBM / CatBoost) whose vote matches the final signal."
+            )
+            _m_tc_top = max(Counter(_m_dic_votes.values()).values())
+            _m_true_consensus = _m_tc_top / _m_n_mdls
+            if _m_tc_top == _m_n_mdls:
+                _m_tc_clr = "#22c55e"        # unanimous
+            elif _m_tc_top >= 2:
+                _m_tc_clr = "#f59e0b"        # majority
+            else:
+                _m_tc_clr = "#ef4444"        # three-way split
+            _m_pill_cols[-1].markdown(
+                f"<div style='text-align:center;background:#0d1218;"
+                f"border:1px solid {_m_tc_clr};border-radius:8px;padding:10px 4px;'>"
+                f"<div style='font-size:0.75em;color:#aaa;margin-bottom:4px'>Model Agreement</div>"
+                f"<div style='font-weight:700;color:{_m_tc_clr};font-size:1.1em'>{_m_true_consensus:.0%}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            _m_pill_cols[-1].caption(
+                "Largest share of base models voting the same class as each other — independent of the final signal."
             )
         else:
             st.info("Train the model to see individual classifier votes.")
