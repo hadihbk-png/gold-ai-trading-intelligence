@@ -252,7 +252,7 @@ def show_landing_page():
     _sc1, _sc2, _sc3, _sc4 = st.columns(4)
     _sc1.metric("Currencies", "9")
     _sc2.metric("Model Accuracy", "36.0%")
-    _sc3.metric("ML Features", "118+")
+    _sc3.metric("ML Features", "146+")
     _sc4.metric("Metals Covered", "3")
 
     st.divider()
@@ -315,8 +315,8 @@ def show_landing_page():
                 unsafe_allow_html=True)
     _features = [
         ("📡", "Live Multi-Source Prices", "4-tier waterfall: metals.live · Alpha Vantage · Twelve Data · yfinance"),
-        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost stacking with Optuna hyperparameter tuning"),
-        ("🌅", "Claude AI Morning Brief", "Daily XAU/USD market analysis powered by Claude claude-sonnet-4-6"),
+        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost + LSTM stacking with Optuna hyperparameter tuning"),
+        ("🌅", "Claude AI Morning Brief", "Daily precious-metals market analysis powered by Claude"),
         ("🏛️", "LBMA & COMEX Reference", "London Bullion Market Association + COMEX GC=F futures benchmarks"),
         ("📧", "Email Alert System", "Signal alerts once/day · Risk alerts 4h cooldown · Gmail SMTP"),
         ("📊", "Backtesting & Validation", "Walk-forward validation · Regime breakdown · Benchmark comparison"),
@@ -350,9 +350,9 @@ def show_landing_page():
     st.markdown("""
     <div style="font-size:0.95em;line-height:2.3;color:#e2e8f0;">
         ✅ <b>Phases 1–5:</b> Core platform complete and live<br>
-        🔄 <b>Phase 6A:</b> Model upgrade — regime-conditional + macro features<br>
-        🔄 <b>Phase 6B:</b> Silver &amp; Platinum expansion<br>
-        🔄 <b>Phase 6C:</b> Decision Intelligence Centre<br>
+        ✅ <b>Phase 6A:</b> Model upgrade — regime-conditional + macro features<br>
+        ✅ <b>Phase 6B:</b> Silver &amp; Platinum expansion<br>
+        ✅ <b>Phase 6C:</b> Decision Intelligence Centre<br>
         🔄 <b>Phase 6D:</b> KPI Command Centre
     </div>
     """, unsafe_allow_html=True)
