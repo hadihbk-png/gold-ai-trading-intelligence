@@ -12,3 +12,6 @@ data/last_alert_date.txt
 data/model_retrain_log.json
 models/lstm_model.keras
 models/lstm_scaler.pkl
+
+# Runtime config holding personal alert email - never commit
+data/alert_config.json
