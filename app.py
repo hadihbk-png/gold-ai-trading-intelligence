@@ -1443,7 +1443,9 @@ if selected_metal != "🥇 Gold (XAU)":
                                 "confidence": _met_sig.get("confidence_pct", 50) / 100,
                                 "gold_price": _met_price or 0,
                             }
-                            _m_expl_txt = _gse_m(_m_expl_sd, _anthropic_key)
+                            _m_expl_txt = _gse_m(_m_expl_sd, _anthropic_key,
+                                                 metal_name=_met_name,
+                                                 metal_symbol=_met_symbol)
                             if _m_expl_txt:
                                 st.session_state[_met_exl_key] = {
                                     "content": _m_expl_txt,

@@ -20,7 +20,7 @@ except ImportError:
 # ── System prompts (cached at the prompt-caching tier) ────────────────────────
 
 _EXPL_SYSTEM = (
-    "You are a professional gold market analyst providing plain-English signal "
+    "You are a professional precious-metals market analyst providing plain-English signal "
     "explanations for retail investors. Be concise (150-200 words maximum), "
     "factual, and helpful. Never give direct financial advice or recommend "
     "specific trade sizes. Always end with one key risk to watch. "
@@ -82,7 +82,9 @@ def sanitize_for_markdown(text: str) -> str:
 
 # ── Prompt builders ────────────────────────────────────────────────────────────
 
-def _build_explanation_prompt(sd: dict) -> str:
+def _build_explanation_prompt(sd: dict,
+                              metal_name: str = "Gold",
+                              metal_symbol: str = "XAU/USD") -> str:
     sig      = sd.get("signal",               "SIDEWAYS")
     conf_pct = sd.get("confidence", 0) * 100
     price    = sd.get("gold_price",            0.0)
@@ -105,7 +107,7 @@ def _build_explanation_prompt(sd: dict) -> str:
 
     feat_str = ", ".join(top_feat) if top_feat else "N/A"
     return (
-        f"Date: {bar_date}. Gold (XAU/USD) is trading at ${price:,.2f}, "
+        f"Date: {bar_date}. {metal_name} ({metal_symbol}) is trading at ${price:,.2f}, "
         f"{chg:+.2f}% from the previous close.\n"
         f"The AI model generated a {sig} signal with {conf_pct:.0f}% confidence.\n\n"
         f"Directional probabilities — UP: {p_up:.0f}%, SIDEWAYS: {p_sw:.0f}%, DOWN: {p_dn:.0f}%.\n"
@@ -114,7 +116,7 @@ def _build_explanation_prompt(sd: dict) -> str:
         f"Market regime: {regime}. Top model drivers: {feat_str}.\n"
         f"Days since last directional signal: {days_ago}.\n\n"
         f"Please explain in plain English why the model generated this {sig} signal "
-        f"and what the key technical conditions mean for gold market participants today."
+        f"and what the key technical conditions mean for {metal_name} market participants today."
     )
 
 
@@ -169,14 +171,18 @@ def _build_brief_prompt(sd: dict, date: str,
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def generate_signal_explanation(signal_data: dict, api_key: str) -> str | None:
+def generate_signal_explanation(signal_data: dict, api_key: str,
+                                metal_name: str = "Gold",
+                                metal_symbol: str = "XAU/USD") -> str | None:
     """
     Generate a 150-200 word plain-English explanation of today's trading signal.
 
     Parameters
     ----------
-    signal_data : dict — see _build_explanation_prompt for expected keys
-    api_key     : Anthropic API key from secrets.toml
+    signal_data  : dict — see _build_explanation_prompt for expected keys
+    api_key      : Anthropic API key from secrets.toml
+    metal_name   : display name of the metal (default "Gold")
+    metal_symbol : ticker symbol (default "XAU/USD")
 
     Returns
     -------
@@ -200,7 +206,7 @@ def generate_signal_explanation(signal_data: dict, api_key: str) -> str | None:
             messages=[
                 {
                     "role": "user",
-                    "content": _build_explanation_prompt(signal_data),
+                    "content": _build_explanation_prompt(signal_data, metal_name, metal_symbol),
                 }
             ],
         )
