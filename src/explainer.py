@@ -53,33 +53,6 @@ _BRIEF_SYSTEM = (
 _MODEL = "claude-sonnet-4-6"
 
 
-# ── Markdown sanitiser ─────────────────────────────────────────────────────────
-
-def sanitize_for_markdown(text: str) -> str:
-    """
-    Strip markdown italic markers and normalize Unicode mathematical italic
-    characters that Claude sometimes outputs instead of plain ASCII.
-    Preserves **bold** section labels.
-    """
-    import re
-
-    # Normalize Unicode mathematical italic letters → plain ASCII
-    _MATH_ITALIC_SMALL = {chr(0x1D44E + i): chr(ord('a') + i) for i in range(26)}
-    _MATH_ITALIC_SMALL['ℎ'] = 'h'
-    _MATH_ITALIC_CAP   = {chr(0x1D434 + i): chr(ord('A') + i) for i in range(26)}
-    _unicode_map = {**_MATH_ITALIC_SMALL, **_MATH_ITALIC_CAP}
-    _unicode_map['−'] = '-'
-    _unicode_map['’'] = "'"
-    text = text.translate(str.maketrans(_unicode_map))
-
-    # Strip *italic* spans — replace *...*  with just the inner text
-    text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'\1', text)
-    # Remove any remaining lone asterisks not part of **bold**
-    text = re.sub(r'(?<!\*)\*(?!\*)', '', text)
-
-    return text
-
-
 # ── Prompt builders ────────────────────────────────────────────────────────────
 
 def _build_explanation_prompt(sd: dict,
