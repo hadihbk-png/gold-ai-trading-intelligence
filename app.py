@@ -27,6 +27,8 @@ def sanitize_for_markdown(text):
     text = _re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text, flags=_re.DOTALL)
     # Remove any remaining lone asterisks not part of **bold**
     text = _re.sub(r"(?<!\*)\*(?!\*)", "", text)
+    # Remove backticks — briefs are prose; no legitimate code spans exist
+    text = text.replace("`", "")
     return text
 
 from src.config import (
