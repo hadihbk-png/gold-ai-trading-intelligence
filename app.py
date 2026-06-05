@@ -56,8 +56,9 @@ st.set_page_config(
 DARK_BG  = "#0e1117"
 GRID_CLR = "#1e2130"
 
-_RETRAIN_LOG = os.path.join(DATA_DIR, "model_retrain_log.json")
-_UAE_TZ      = timezone(timedelta(hours=4))
+_RETRAIN_LOG  = os.path.join(DATA_DIR, "model_retrain_log.json")
+_ALERT_CONFIG = os.path.join(DATA_DIR, "alert_config.json")
+_UAE_TZ       = timezone(timedelta(hours=4))
 
 
 def _read_retrain_log() -> dict:
@@ -76,6 +77,25 @@ def _write_retrain_log(last_bar_date: str) -> None:
     with open(_RETRAIN_LOG, "w") as f:
         json.dump({"last_retrain_utc": datetime.now(timezone.utc).isoformat(),
                    "last_bar_date": last_bar_date}, f)
+
+
+def _read_alert_config() -> dict:
+    blank = {"recipient": ""}
+    if not os.path.exists(_ALERT_CONFIG):
+        return blank
+    try:
+        with open(_ALERT_CONFIG) as f:
+            return {**blank, **json.load(f)}
+    except Exception:
+        return blank
+
+
+def _write_alert_config(recipient: str) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(_ALERT_CONFIG, "w") as f:
+        json.dump({"recipient": recipient.strip()}, f)
+
+
 _PLT = dict(plot_bgcolor=DARK_BG, paper_bgcolor=DARK_BG, font=dict(color="white"))
 
 def _dark(fig, height=420):
@@ -461,6 +481,20 @@ with st.sidebar:
         st.caption(f"Optuna trials: {N_TRIALS}")
         st.caption(f"Bull threshold: {BULL_UP_CONF_RELAXED:.2f}")
         st.caption(f"Min confidence: {MIN_CONFIDENCE:.0%}")
+        _alert_cfg = _read_alert_config()
+        _alert_email_in = st.text_input(
+            "Alert email",
+            value=_alert_cfg.get("recipient", ""),
+            placeholder="you@example.com",
+            help="Where signal and risk alerts are sent. Leave blank to use ALERT_RECIPIENT from secrets.",
+        )
+        if st.button("Save alert email"):
+            _v = _alert_email_in.strip()
+            if _v == "" or ("@" in _v and "." in _v.split("@")[-1]):
+                _write_alert_config(_v)
+                st.success("Saved." if _v else "Cleared - will use secrets default.")
+            else:
+                st.warning("That doesn't look like a valid email address.")
 
 # ── Load data ──────────────────────────────────────────────────────────────────
 if refresh_btn:
@@ -750,7 +784,7 @@ if st.session_state.alert_status == "ready" and signal:
     if _alert_conditions:
         _al_sender    = st.secrets.get("GMAIL_SENDER", "")
         _al_password  = st.secrets.get("GMAIL_APP_PASSWORD", "")
-        _al_recipient = st.secrets.get("ALERT_RECIPIENT", "")
+        _al_recipient = _read_alert_config().get("recipient", "") or st.secrets.get("ALERT_RECIPIENT", "")
         if _al_sender and _al_password and _al_recipient:
             _aed_for_alert = cur * 3.6725
             _al_ok, _al_msg = send_signal_alert(
@@ -771,7 +805,7 @@ _ra_eligible, _ = risk_alert_eligible()
 if _ra_eligible and df is not None:
     _ra_sender    = st.secrets.get("GMAIL_SENDER", "")
     _ra_password  = st.secrets.get("GMAIL_APP_PASSWORD", "")
-    _ra_recipient = st.secrets.get("ALERT_RECIPIENT", "")
+    _ra_recipient = _read_alert_config().get("recipient", "") or st.secrets.get("ALERT_RECIPIENT", "")
     if _ra_sender and _ra_password and _ra_recipient:
         _ra_ok, _ra_msg = send_risk_alert(
             df, float(df["Close"].iloc[-1]),
