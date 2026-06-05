@@ -35,7 +35,7 @@ from src.config import (
     PRIMARY_TICKER, TRAIN_YEARS, TEST_YEARS, N_TRIALS,
     INITIAL_CAPITAL, MIN_CONFIDENCE, MAX_ATR_PCT,
     MAX_DRAWDOWN_HALT, MAX_DAILY_LOSS_PCT, FRED_API_KEY,
-    BULL_UP_CONF_RELAXED, BULL_REGIME_ENABLED, DATA_DIR,
+    BULL_UP_CONF_RELAXED, BULL_REGIME_ENABLED, DATA_DIR, MODELS_DIR,
 )
 from src.data_loader import download_data, get_train_test_split, get_live_spot_price, get_lbma_fix, get_fx_rates
 from src.features import add_features
@@ -1768,9 +1768,8 @@ with st.expander("🔍 Data Sources & Integrity", expanded=False):
     try:
         import json as _dj
         from src.features import detect_feature_drift as _dfd
-        _stats_path_ds = os.path.join(DATA_DIR, "training_stats.json") if "DATA_DIR" in dir() else ""
         _drift_score_val, _drift_list = 0.0, []
-        _ts_path = os.path.join(DATA_DIR, "training_stats.json")
+        _ts_path = os.path.join(MODELS_DIR, "training_stats.json")
         if os.path.exists(_ts_path):
             with open(_ts_path) as _tsf:
                 _train_stats = _dj.load(_tsf)
