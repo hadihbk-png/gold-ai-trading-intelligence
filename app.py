@@ -1453,7 +1453,7 @@ if selected_metal != "🥇 Gold (XAU)":
                                 }
                     _m_cached_expl = st.session_state.get(_met_exl_key)
                     if _m_cached_expl and _m_cached_expl.get("content"):
-                        st.markdown(_m_cached_expl["content"])
+                        st.markdown(sanitize_for_markdown(_m_cached_expl["content"]))
                         st.caption("Powered by Claude AI — Not financial advice")
                     elif _anthropic_key:
                         st.warning("Explanation generation failed — check ANTHROPIC_API_KEY.")
@@ -2234,7 +2234,7 @@ if signal and _signal_data_for_api:
 
             _cached_expl = st.session_state.ai_explanation
             if _cached_expl and _cached_expl.get("content"):
-                st.markdown(_cached_expl["content"])
+                st.markdown(sanitize_for_markdown(_cached_expl["content"]))
                 st.caption(
                     "Powered by Claude AI — Not financial advice · "
                     "Each explanation call costs approximately $0.002"
