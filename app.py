@@ -251,7 +251,7 @@ def show_landing_page():
     # ── Stats bar ─────────────────────────────────────────────────────────────
     _sc1, _sc2, _sc3, _sc4 = st.columns(4)
     _sc1.metric("Currencies", "9")
-    _sc2.metric("Model Accuracy", "36.0%")
+    _sc2.metric("Baseline Accuracy", "36.0%")
     _sc3.metric("ML Features", "146+")
     _sc4.metric("Metals Covered", "3")
 
