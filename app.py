@@ -1513,6 +1513,22 @@ if regime_info:
 else:
     c4.metric("Market Regime", "—")
 
+# --- Signal transparency: explain WHY the signal is what it is (display only, reads existing fields) ---
+if signal:
+    _LBL = {0: "DOWN", 1: "SIDEWAYS", 2: "UP"}
+    _proba = signal.get("proba_vec")
+    _final = signal.get("signal_int")
+    _freason = signal.get("filter_reason")
+    if _proba and _final is not None:
+        _pd, _ps, _pu = _proba[0] * 100, _proba[1] * 100, _proba[2] * 100
+        st.caption(f"Model read - DOWN {_pd:.0f}%  -  SIDEWAYS {_ps:.0f}%  -  UP {_pu:.0f}%")
+        _argmax = _proba.index(max(_proba))
+        if _argmax != _final:
+            if _freason:
+                st.info(f"{_LBL[_argmax]} suppressed -> shown as {_LBL[_final]}: {_freason}")
+            elif _final == 1 and _argmax in (0, 2):
+                st.info(f"{_LBL[_argmax]} was the model's strongest class but it did not clear the confidence threshold, so the signal is held at SIDEWAYS.")
+
 st.caption(f"Last bar: {last_date}")
 
 # ── LBMA benchmark + COMEX reference ──────────────────────────────────────────
