@@ -315,7 +315,7 @@ def show_landing_page():
                 unsafe_allow_html=True)
     _features = [
         ("📡", "Live Multi-Source Prices", "4-tier waterfall: metals.live · Alpha Vantage · Twelve Data · yfinance"),
-        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost + LSTM stacking with Optuna hyperparameter tuning"),
+        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost stacking with Optuna hyperparameter tuning"),
         ("🌅", "Claude AI Morning Brief", "Daily precious-metals market analysis powered by Claude"),
         ("🏛️", "LBMA & COMEX Reference", "London Bullion Market Association + COMEX GC=F futures benchmarks"),
         ("📧", "Email Alert System", "Signal alerts once/day · Risk alerts 4h cooldown · Gmail SMTP"),
