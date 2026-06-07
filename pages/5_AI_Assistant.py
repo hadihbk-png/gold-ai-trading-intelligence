@@ -212,6 +212,7 @@ if _chat_enabled and _signal is not None:
 
         if _reply is not None:
             _history.append({"role": "assistant", "content": _reply})
+            st.rerun()
         else:
             _placeholder.empty()
             st.error(_err_msg)
