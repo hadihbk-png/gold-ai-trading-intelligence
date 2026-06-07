@@ -118,7 +118,12 @@ if _chat_enabled and _signal is not None:
         _ctx_lines.append(f"Current price (USD): ${_price:,.2f}")
     _ctx_lines.append(f"AI signal: {_sig_lbl}")
     if _conf_pct is not None:
-        _ctx_lines.append(f"Model confidence: {_conf_pct:.1f}%")
+        _ctx_lines.append(
+            f"Model confidence: {_conf_pct:.1f}% "
+            f"— the probability of the model's directional read (the UP or DOWN class it leans toward), "
+            f"not the displayed signal class; a no-trade filter can force the displayed signal to SIDEWAYS "
+            f"while confidence still reflects that directional read"
+        )
     if _proba is not None and len(_proba) == 3:
         _p_down, _p_side, _p_up = _proba
         _ctx_lines.append(
@@ -141,10 +146,16 @@ if _chat_enabled and _signal is not None:
         "or holding any asset, and never suggest trade sizes or entry/exit timing.\n"
         "2. You ground EVERY factual answer exclusively in the live market context block "
         "provided below. Do NOT invent, estimate, or extrapolate any number not present there.\n"
-        "3. You stay strictly on topic: precious-metals market analysis, the platform's signals, "
-        "indicators, and methodology. Decline off-topic questions politely and briefly.\n"
+        "3. You cover Gold, Silver, and Platinum only — the three metals tracked by this platform. "
+        "You do NOT cover other metals or commodities (e.g. palladium, copper, oil, indices). "
+        "Decline questions outside this scope politely and briefly.\n"
         "4. You may explain what signals, regimes, indicators, and probabilities mean, "
-        "and what the user should be aware of — but the decision to act remains theirs alone.\n\n"
+        "and what the user should be aware of — but the decision to act remains theirs alone.\n"
+        "5. Maintain a professional, measured tone appropriate for a financial decision-intelligence "
+        "tool. Use emojis sparingly or not at all.\n"
+        "6. When comparing probabilities or any figures, be numerically precise. Do not describe "
+        "values as 'close', 'similar', or 'near' unless they genuinely differ by less than 2 "
+        "percentage points.\n\n"
         f"LIVE MARKET CONTEXT:\n{_context_block}"
     )
 
