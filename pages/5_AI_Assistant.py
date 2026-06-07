@@ -12,6 +12,11 @@ _anthropic = None
 if _ANTHROPIC_AVAILABLE:
     from src.explainer import _anthropic
 
+
+def _md_safe(text: str) -> str:
+    return text.replace("$", "\\$")
+
+
 st.set_page_config(
     page_title="APEX Metals AI — AI Assistant",
     page_icon="🤖",
@@ -146,14 +151,14 @@ if _chat_enabled and _signal is not None:
     # Render prior turns
     for _turn in _history:
         with st.chat_message(_turn["role"]):
-            st.markdown(_turn["content"])
+            st.markdown(_md_safe(_turn["content"]))
 
     # Accept new input and call Claude
     _user_input = st.chat_input(f"Ask about {metal}…")
     if _user_input:
         _history.append({"role": "user", "content": _user_input})
         with st.chat_message("user"):
-            st.markdown(_user_input)
+            st.markdown(_md_safe(_user_input))
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking…"):
@@ -174,6 +179,6 @@ if _chat_enabled and _signal is not None:
                     _reply = _resp.content[0].text.strip()
                 except Exception:
                     _reply = "The assistant encountered an error — please try again."
-            st.markdown(_reply)
+            st.markdown(_md_safe(_reply))
 
         _history.append({"role": "assistant", "content": _reply})
