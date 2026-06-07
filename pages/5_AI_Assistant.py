@@ -177,40 +177,43 @@ if _chat_enabled and _signal is not None:
             st.markdown(_md_safe(_user_input))
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking…"):
-                _reply   = None
-                _err_msg = None
-                try:
-                    _client = _anthropic.Anthropic(api_key=_api_key)
-                    _resp   = _client.messages.create(
-                        model=_MODEL,
-                        max_tokens=1024,
-                        system=[
-                            {
-                                "type": "text",
-                                "text": _system_prompt,
-                                "cache_control": {"type": "ephemeral"},
-                            }
-                        ],
-                        messages=_history,
-                    )
-                    _reply = _resp.content[0].text.strip()
-                except _anthropic.AuthenticationError:
-                    _err_msg = "Authentication failed — the API key may be invalid or missing. Check your secrets configuration."
-                except _anthropic.RateLimitError:
-                    _err_msg = "Rate limit reached — please wait a moment and try again."
-                except _anthropic.APIConnectionError:
-                    _err_msg = "Could not reach the Anthropic service — check your connection and try again."
-                except _anthropic.APIError:
-                    _err_msg = "The service returned an error — please try again."
-                except Exception:
-                    _err_msg = "Something went wrong — please try again."
+            _placeholder = st.empty()
+            _reply       = None
+            _err_msg     = None
+            _accumulated = ""
+            try:
+                _client = _anthropic.Anthropic(api_key=_api_key)
+                with _client.messages.stream(
+                    model=_MODEL,
+                    max_tokens=1024,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": _system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=_history,
+                ) as _stream:
+                    for _chunk in _stream.text_stream:
+                        _accumulated += _chunk
+                        _placeholder.markdown(_md_safe(_accumulated))
+                _reply = _accumulated.strip()
+            except _anthropic.AuthenticationError:
+                _err_msg = "Authentication failed — the API key may be invalid or missing. Check your secrets configuration."
+            except _anthropic.RateLimitError:
+                _err_msg = "Rate limit reached — please wait a moment and try again."
+            except _anthropic.APIConnectionError:
+                _err_msg = "Could not reach the Anthropic service — check your connection and try again."
+            except _anthropic.APIError:
+                _err_msg = "The service returned an error — please try again."
+            except Exception:
+                _err_msg = "Something went wrong — please try again."
 
-            if _reply is not None:
-                st.markdown(_md_safe(_reply))
         if _reply is not None:
             _history.append({"role": "assistant", "content": _reply})
         else:
+            _placeholder.empty()
             st.error(_err_msg)
             if _history and _history[-1]["role"] == "user":
                 _history.pop()
