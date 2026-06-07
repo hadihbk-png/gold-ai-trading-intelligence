@@ -112,6 +112,11 @@ if _chat_enabled and _signal is not None:
     _chats   = st.session_state.setdefault("assistant_chat", {})
     _history = _chats.setdefault(metal, [])
 
+    if _history:
+        if st.button("Clear conversation", key=f"clear_chat_{metal}"):
+            _chats[metal] = []
+            st.rerun()
+
     # Grounded context: only variables already resolved above — no invented numbers
     _ctx_lines = [f"Metal: {metal}"]
     if _price is not None:
