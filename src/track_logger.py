@@ -75,6 +75,59 @@ class LocalJsonStore:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+# ── SHEETS STORE ───────────────────────────────────────────────────────────────
+
+# Columns written as plain text for human readability in the spreadsheet.
+HELPER_COLUMNS = [
+    "prediction_id",
+    "as_of_date",
+    "metal",
+    "verdict",
+    "confidence_pct",
+    "record_hash",
+]
+# Full header: helper columns followed by the canonical payload column.
+SHEET_HEADER = HELPER_COLUMNS + ["payload_json"]
+
+
+class SheetsStore:
+    """
+    Google Sheets-backed store satisfying the Store protocol.
+
+    The worksheet object is injected — no gspread import here.
+    A credentials factory (make_sheets_store_from_secrets) will be added at
+    the wiring step and is not part of this module.
+    """
+
+    def __init__(self, worksheet) -> None:
+        self._ws = worksheet
+
+    def _ensure_header(self) -> None:
+        if not self._ws.get_all_values():
+            self._ws.append_row(SHEET_HEADER, value_input_option="RAW")
+
+    def append(self, row: dict) -> None:
+        self._ensure_header()
+        payload_json = json.dumps(row, ensure_ascii=False)
+        full_row = [str(row.get(col, "")) for col in HELPER_COLUMNS] + [payload_json]
+        self._ws.append_row(full_row, value_input_option="RAW")
+
+    def read_all(self) -> list[dict]:
+        vals = self._ws.get_all_values()
+        if not vals:
+            return []
+        header = vals[0]
+        try:
+            pj_idx = header.index("payload_json")
+        except ValueError:
+            return []
+        rows: list[dict] = []
+        for raw_row in vals[1:]:
+            if pj_idx < len(raw_row) and raw_row[pj_idx]:
+                rows.append(json.loads(raw_row[pj_idx]))
+        return rows
+
+
 # ── CANONICALIZATION ───────────────────────────────────────────────────────────
 
 def _canonicalize(value):  # type: ignore[return]

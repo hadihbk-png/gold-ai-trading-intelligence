@@ -15,7 +15,13 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from src.track_logger import LocalJsonStore, log_prediction, verify_chain
+from src.track_logger import (
+    LocalJsonStore,
+    SheetsStore,
+    SHEET_HEADER,
+    log_prediction,
+    verify_chain,
+)
 
 # ── Shared fixtures / helpers ──────────────────────────────────────────────────
 
@@ -158,3 +164,76 @@ def test_unknown_metal_rejected(tmp_store):
     assert result["status"] == "error"
     assert result["record_hash"] is None
     assert len(tmp_store.read_all()) == 0
+
+
+# ── FakeWorksheet — pure-Python Sheets simulation ─────────────────────────────
+
+class FakeWorksheet:
+    """
+    Simulates a gspread Worksheet with Sheets-style string coercion.
+    Every value passed to append_row is stored as str(), matching real Sheets
+    behaviour where every cell value is a string regardless of type.
+    """
+
+    def __init__(self):
+        self._rows = []
+
+    def append_row(self, values, value_input_option=None):
+        self._rows.append([str(v) for v in values])
+
+    def get_all_values(self):
+        return [list(r) for r in self._rows]
+
+
+# ── SheetsStore tests (10-14) ─────────────────────────────────────────────────
+
+def test_sheets_three_metals_chain():
+    """3 metals → 3 dicts from read_all(); verify_chain validates through Sheets round-trip."""
+    store = SheetsStore(FakeWorksheet())
+    results = [log_prediction(store=store, **_kwargs(m)) for m in METALS]
+
+    assert all(r["status"] == "appended" for r in results)
+    rows = store.read_all()
+    assert len(rows) == 3
+    assert verify_chain(rows) is True
+
+
+def test_sheets_nested_fields_round_trip():
+    """proba_vector (list) and data_provenance (str) survive the Sheets string round-trip."""
+    store = SheetsStore(FakeWorksheet())
+    log_prediction(store=store, **_kwargs("gold"))
+
+    row = store.read_all()[0]
+    assert isinstance(row["proba_vector"], list)
+    assert row["proba_vector"] == [0.10, 0.20, 0.70]
+    assert row["data_provenance"] == "yfinance/GLD"
+
+
+def test_sheets_messy_float_round_trip():
+    """price_at_decision with excess decimals is stored rounded to FLOAT_PRECISION; chain holds."""
+    store = SheetsStore(FakeWorksheet())
+    log_prediction(store=store, **{**_kwargs("gold"), "price_at_decision": 2050.123456789})
+
+    rows = store.read_all()
+    assert rows[0]["price_at_decision"] == round(2050.123456789, 6)
+    assert verify_chain(rows) is True
+
+
+def test_sheets_dedup():
+    """Re-logging gold after all 3 metals → duplicate, read_all stays length 3."""
+    store = SheetsStore(FakeWorksheet())
+    for m in METALS:
+        log_prediction(store=store, **_kwargs(m))
+
+    r = log_prediction(store=store, **_kwargs("gold"))
+    assert r["status"] == "duplicate"
+    assert len(store.read_all()) == 3
+
+
+def test_sheets_header():
+    """After the first append the first worksheet row equals SHEET_HEADER."""
+    ws = FakeWorksheet()
+    store = SheetsStore(ws)
+    log_prediction(store=store, **_kwargs("gold"))
+
+    assert ws.get_all_values()[0] == SHEET_HEADER
