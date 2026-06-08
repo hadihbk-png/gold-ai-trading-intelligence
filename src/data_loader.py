@@ -5,6 +5,7 @@ Data is disk-cached to avoid re-downloading on every Streamlit rerun.
 
 import os
 import pickle
+import time
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -335,6 +336,34 @@ def get_platinum_price() -> tuple:
     return None, "Platinum (unavailable)"
 
 
+# Must exceed the metal window (2 years + 90-day buffer) so the index-aligned
+# join has full coverage after _flatten and ffill.
+_SIDECAR_PERIOD = "3y"
+# Seconds before the 1st, 2nd, and 3rd retry of a macro-sidecar download.
+_SIDECAR_DELAYS = (1, 2, 4)
+
+
+def _download_macro_sidecar(macro_ticker: str) -> pd.DataFrame:
+    """Download a macro sidecar, retrying up to 3 times with exponential backoff.
+
+    Uses period= rather than start/end — index tickers such as ^VIX return empty
+    with explicit date ranges on some yfinance builds but succeed with period=.
+    Returns an empty DataFrame once all attempts are exhausted.
+    """
+    for delay in (None, *_SIDECAR_DELAYS):
+        if delay is not None:
+            time.sleep(delay)
+        try:
+            m = yf.download(macro_ticker, period=_SIDECAR_PERIOD,
+                            progress=False, auto_adjust=True)
+            m = _flatten(m)
+            if not m.empty:
+                return m
+        except Exception:
+            pass
+    return pd.DataFrame()
+
+
 # ── Metal OHLCV downloader (charts + signal inference) ─────────────────────────
 
 def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
@@ -369,17 +398,12 @@ def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
         "SPY":      "SPY_Close",
     }
     for macro_ticker, col_name in _macro_map.items():
-        try:
-            m = yf.download(macro_ticker, start=start, end=end,
-                            progress=False, auto_adjust=True)
-            m = _flatten(m)
-            if not m.empty and "Close" in m.columns:
-                s = m["Close"]
-                if isinstance(s, pd.DataFrame):
-                    s = s.iloc[:, 0]
-                df[col_name] = s
-        except Exception:
-            pass
+        m = _download_macro_sidecar(macro_ticker)
+        if not m.empty and "Close" in m.columns:
+            s = m["Close"]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
+            df[col_name] = s
 
     df.dropna(subset=["Close", "High", "Low"], inplace=True)
     df.sort_index(inplace=True)
