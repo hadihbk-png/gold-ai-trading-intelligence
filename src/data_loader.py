@@ -75,7 +75,7 @@ def download_data(
     if not force_refresh:
         cached = _load_cached()
         if cached is not None and not _is_cache_stale(cached):
-            return cached
+            return _drop_unsettled_tail(cached)
 
     raw: dict[str, pd.DataFrame] = {}
     for ticker in TICKERS:
@@ -91,7 +91,7 @@ def download_data(
     if PRIMARY_TICKER not in raw:
         cached = _load_cached()
         if cached is not None:
-            return cached
+            return _drop_unsettled_tail(cached)
         raise RuntimeError(
             f"Primary ticker {PRIMARY_TICKER} failed to download and no cached data is available."
         )
@@ -120,7 +120,7 @@ def download_data(
     with open(cache_path, "wb") as f:
         pickle.dump(gold, f)
 
-    return gold
+    return _drop_unsettled_tail(gold)
 
 
 def get_train_test_split(df: pd.DataFrame):
@@ -364,6 +364,25 @@ def _download_macro_sidecar(macro_ticker: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _drop_unsettled_tail(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop trailing rows dated today (UTC) or later, so callers only ever
+    receive fully-settled daily bars.
+
+    A daily bar dated 'today' is still forming intraday and can be revised or
+    disappear entirely (observed on SI=F / PL=F), which would write a
+    non-reproducible as_of into the point-in-time track record. UTC keeps the
+    cutoff identical locally and on Streamlit Cloud. No-op on empty frames,
+    non-datetime indexes, or if the trim would remove everything.
+    """
+    if df is None or getattr(df, "empty", True):
+        return df
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    cutoff = pd.Timestamp(datetime.now(timezone.utc).date())
+    trimmed = df.loc[df.index < cutoff]
+    return trimmed if not trimmed.empty else df
+
+
 # ── Metal OHLCV downloader (charts + signal inference) ─────────────────────────
 
 def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
@@ -384,10 +403,10 @@ def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
                          progress=False, auto_adjust=True)
         df = _flatten(df)
         if df.empty:
-            return pd.DataFrame()
+            return _drop_unsettled_tail(pd.DataFrame())
         df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
-        return pd.DataFrame()
+        return _drop_unsettled_tail(pd.DataFrame())
 
     # Macro sidecars — named EXACTLY as add_features() looks them up
     _macro_map = {
@@ -412,4 +431,4 @@ def download_metal_ohlcv(ticker: str, years: int = 2) -> pd.DataFrame:
     if ext:
         df[ext] = df[ext].ffill()
 
-    return df
+    return _drop_unsettled_tail(df)
