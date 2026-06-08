@@ -103,7 +103,11 @@ class SheetsStore:
         self._ws = worksheet
 
     def _ensure_header(self) -> None:
-        if not self._ws.get_all_values():
+        # A freshly created gspread worksheet returns a grid of empty strings
+        # rather than [], so check that the first row actually contains the
+        # header sentinel instead of just testing for truthiness.
+        vals = self._ws.get_all_values()
+        if not vals or vals[0][0:1] != ["prediction_id"]:
             self._ws.append_row(SHEET_HEADER, value_input_option="RAW")
 
     def append(self, row: dict) -> None:
