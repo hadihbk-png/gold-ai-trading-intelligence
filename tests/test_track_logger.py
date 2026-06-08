@@ -18,6 +18,7 @@ import pytest
 from src.track_logger import (
     LocalJsonStore,
     SheetsStore,
+    StoreIntegrityError,
     SHEET_HEADER,
     log_prediction,
     verify_chain,
@@ -237,3 +238,43 @@ def test_sheets_header():
     log_prediction(store=store, **_kwargs("gold"))
 
     assert ws.get_all_values()[0] == SHEET_HEADER
+
+
+# ── SheetsStore edge-case tests (15-17) ───────────────────────────────────────
+
+def test_ensure_header_on_empty_string_grid():
+    """_ensure_header writes SHEET_HEADER when get_all_values() returns a grid of empty strings
+    (the state a freshly created gspread worksheet is in before any data is written)."""
+    ws = FakeWorksheet()
+    # Simulate a real fresh worksheet: multiple rows, all empty strings
+    ws._rows = [[""] * len(SHEET_HEADER), [""] * len(SHEET_HEADER)]
+    store = SheetsStore(ws)
+
+    store._ensure_header()
+
+    # The header must have been appended as the next row
+    assert ws.get_all_values()[-1] == SHEET_HEADER
+
+
+def test_read_all_empty_on_empty_string_grid():
+    """read_all returns [] without raising when the sheet contains only empty strings."""
+    ws = FakeWorksheet()
+    ws._rows = [[""] * len(SHEET_HEADER), [""] * len(SHEET_HEADER)]
+    store = SheetsStore(ws)
+
+    assert store.read_all() == []
+
+
+def test_read_all_raises_on_malformed_header():
+    """read_all raises StoreIntegrityError when a real header row is present but lacks
+    'payload_json' (e.g. a manually edited sheet or wrong tab)."""
+    ws = FakeWorksheet()
+    # Non-empty header that contains no payload_json column, plus a data row
+    ws._rows = [
+        ["col_a", "col_b", "col_c"],
+        ["val1",  "val2",  "val3"],
+    ]
+    store = SheetsStore(ws)
+
+    with pytest.raises(StoreIntegrityError, match="payload_json"):
+        store.read_all()

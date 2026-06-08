@@ -33,6 +33,10 @@ _CLASS_MAP = {0: "DOWN", 1: "SIDEWAYS", 2: "UP"}  # proba_vector = [P(DOWN), P(S
 _log = logging.getLogger(__name__)
 
 
+class StoreIntegrityError(RuntimeError):
+    """Raised when a SheetsStore worksheet has a non-empty but malformed header row."""
+
+
 # ── STORAGE PROTOCOL ───────────────────────────────────────────────────────────
 
 @runtime_checkable
@@ -118,13 +122,17 @@ class SheetsStore:
 
     def read_all(self) -> list[dict]:
         vals = self._ws.get_all_values()
-        if not vals:
+        # Treat the sheet as empty if every cell in every row is an empty string
+        # (a freshly created gspread worksheet returns such a grid rather than []).
+        if not any(cell != "" for row in vals for cell in row):
             return []
         header = vals[0]
         try:
             pj_idx = header.index("payload_json")
         except ValueError:
-            return []
+            raise StoreIntegrityError(
+                f"Sheet header row lacks 'payload_json' column; first row: {header!r}"
+            )
         rows: list[dict] = []
         for raw_row in vals[1:]:
             if pj_idx < len(raw_row) and raw_row[pj_idx]:
