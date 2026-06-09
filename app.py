@@ -222,177 +222,8 @@ def compute_trade_zones(price, signal, atr):
 
 # ── Landing page ───────────────────────────────────────────────────────────────
 def show_landing_page():
-    """Render the APEX Metals AI landing page."""
-    st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"] > .main { background-color: #070f18; }
-    [data-testid="stSidebar"], [data-testid="stSidebarNav"] { display: none !important; }
-    header[data-testid="stHeader"] { background-color: #070f18; border-bottom: 1px solid #1a1a2e; }
-    .block-container { padding-top: 2rem; max-width: 1100px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # ── Hero ──────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div style="text-align:center; padding: 40px 20px 10px;">
-        <div style="margin-bottom:22px;">
-            <span style="background:#1a1200;border:1px solid #b8960c;color:#d4aa30;
-                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
-                ● Gold XAU</span>
-            <span style="background:#111820;border:1px solid #708090;color:#a0b0be;
-                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
-                ● Silver XAG</span>
-            <span style="background:#160a24;border:1px solid #8b5cf6;color:#c4a0f0;
-                border-radius:20px;padding:6px 16px;margin:0 6px;font-size:0.85em;font-weight:600">
-                ● Platinum XPT</span>
-        </div>
-        <h1 style="font-size:3.6em;font-weight:900;margin:0 0 10px;
-            background:linear-gradient(135deg,#d4aa30,#f5d060,#b8960c);
-            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-            background-clip:text;line-height:1.1;">
-            APEX Metals AI</h1>
-        <p style="font-size:1.15em;color:#a0aec0;margin:0 0 8px;letter-spacing:0.05em;">
-            Analytical Precious Exchange Intelligence</p>
-        <p style="font-size:0.9em;color:#718096;max-width:600px;margin:0 auto 26px;line-height:1.7;">
-            Ensemble ML signal engine for Gold, Silver &amp; Platinum.
-            Regime-conditional models, Claude AI morning briefs,
-            multi-source live prices, and a full Decision Intelligence framework.
-            Personal research only — not financial advice.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    _lp1, _lp2, _lp3 = st.columns([2, 1, 2])
-    with _lp2:
-        st.button(
-            "🚀 Launch Dashboard", type="primary", key="launch_btn",
-            use_container_width=True,
-            on_click=lambda: st.session_state.update({"show_dashboard": True}),
-        )
-
-    st.markdown("""
-    <p style="text-align:center;font-size:0.75em;color:#4a5568;margin:8px 0 16px;">
-        ⚠️ Personal research only · NOT financial advice · Past performance ≠ future results</p>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # ── Stats bar ─────────────────────────────────────────────────────────────
-    _sc1, _sc2, _sc3, _sc4 = st.columns(4)
-    _sc1.metric("Currencies", "9")
-    _sc2.metric("Baseline Accuracy", "36.0%")
-    _sc3.metric("ML Features", "146+")
-    _sc4.metric("Metals Covered", "3")
-
-    st.divider()
-
-    # ── Metals cards ──────────────────────────────────────────────────────────
-    _mc1, _mc2, _mc3 = st.columns(3)
-    with _mc1:
-        st.markdown("""
-        <div style="background:#110d00;border:1px solid #b8960c;border-radius:12px;padding:20px;height:240px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                <span style="font-size:1.1em;font-weight:700;color:#d4aa30">🥇 Gold — XAU/USD</span>
-                <span style="background:#0a1a00;border:1px solid #22c55e;color:#22c55e;
-                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">● Live</span>
-            </div>
-            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
-                <li>Live spot — 4-tier waterfall</li>
-                <li>AI signal (UP/SIDEWAYS/DOWN)</li>
-                <li>LBMA + COMEX reference</li>
-                <li>Claude AI Morning Brief</li>
-                <li>9 currencies · Email alerts</li>
-            </ul>
-        </div>""", unsafe_allow_html=True)
-    with _mc2:
-        st.markdown("""
-        <div style="background:#0d1218;border:1px solid #708090;border-radius:12px;padding:20px;height:240px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                <span style="font-size:1.1em;font-weight:700;color:#a0b0be">🥈 Silver — XAG/USD</span>
-                <span style="background:#1a1200;border:1px solid #f59e0b;color:#f59e0b;
-                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">Phase 6</span>
-            </div>
-            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
-                <li>Live spot price</li>
-                <li>AI signal model</li>
-                <li>Gold/Silver ratio</li>
-                <li>Portfolio tracker</li>
-                <li>Multi-metal chart · 9 currencies</li>
-            </ul>
-        </div>""", unsafe_allow_html=True)
-    with _mc3:
-        st.markdown("""
-        <div style="background:#110a1e;border:1px solid #8b5cf6;border-radius:12px;padding:20px;height:240px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                <span style="font-size:1.1em;font-weight:700;color:#c4a0f0">💎 Platinum — XPT/USD</span>
-                <span style="background:#1a1200;border:1px solid #f59e0b;color:#f59e0b;
-                    border-radius:12px;padding:2px 10px;font-size:0.72em;font-weight:600">Phase 6</span>
-            </div>
-            <ul style="color:#a0aec0;font-size:0.84em;padding-left:16px;margin:0;line-height:2.1;">
-                <li>Live spot price</li>
-                <li>AI signal model</li>
-                <li>Platinum/Gold spread</li>
-                <li>Portfolio tracker</li>
-                <li>Multi-metal chart · 9 currencies</li>
-            </ul>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Features grid ─────────────────────────────────────────────────────────
-    st.markdown("<h3 style='color:#d4aa30;text-align:center;margin-bottom:16px'>Platform Features</h3>",
-                unsafe_allow_html=True)
-    _features = [
-        ("📡", "Live Multi-Source Prices", "4-tier waterfall: metals.live · Alpha Vantage · Twelve Data · yfinance"),
-        ("🤖", "Ensemble ML Signal", "XGBoost + LightGBM + CatBoost stacking with Optuna hyperparameter tuning"),
-        ("🌅", "Claude AI Morning Brief", "Daily precious-metals market analysis powered by Claude"),
-        ("🏛️", "LBMA & COMEX Reference", "London Bullion Market Association + COMEX GC=F futures benchmarks"),
-        ("📧", "Email Alert System", "Signal alerts once/day · Risk alerts 4h cooldown · Gmail SMTP"),
-        ("📊", "Backtesting & Validation", "Walk-forward validation · Regime breakdown · Benchmark comparison"),
-    ]
-    _fg1, _fg2, _fg3 = st.columns(3)
-    for _i, (_icon, _ftitle, _fdesc) in enumerate(_features):
-        _fcol = [_fg1, _fg2, _fg3][_i % 3]
-        _fcol.markdown(f"""
-        <div style="background:#0d1218;border:1px solid #1e2130;border-radius:10px;
-            padding:16px;margin-bottom:10px;text-align:center;">
-            <div style="font-size:1.8em">{_icon}</div>
-            <div style="font-weight:700;color:#e2e8f0;margin:6px 0 4px;font-size:0.95em">{_ftitle}</div>
-            <div style="font-size:0.78em;color:#718096;line-height:1.4">{_fdesc}</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.divider()
-
-    # ── Model performance ─────────────────────────────────────────────────────
-    st.markdown("<h3 style='color:#d4aa30'>📈 Model Performance — Gold v1 Baseline</h3>",
-                unsafe_allow_html=True)
-    _mp1, _mp2, _mp3, _mp4 = st.columns(4)
-    _mp1.metric("Overall Accuracy", "36.0%", "+4.5pp vs random")
-    _mp2.metric("Directional Accuracy", "41.1%", "+20pp uplift")
-    _mp3.metric("DOWN Accuracy", "55.6%", "10× uplift")
-    _mp4.metric("Predictions Logged", "322")
-
-    st.divider()
-
-    # ── Roadmap ───────────────────────────────────────────────────────────────
-    st.markdown("<h3 style='color:#d4aa30'>🗺️ Platform Roadmap</h3>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="font-size:0.95em;line-height:2.3;color:#e2e8f0;">
-        ✅ <b>Phases 1–5:</b> Core platform complete and live<br>
-        ✅ <b>Phase 6A:</b> Model upgrade — regime-conditional + macro features<br>
-        ✅ <b>Phase 6B:</b> Silver &amp; Platinum expansion<br>
-        ✅ <b>Phase 6C:</b> Decision Intelligence Centre<br>
-        🔄 <b>Phase 6D:</b> KPI Command Centre
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # ── Footer ────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <p style="text-align:center;color:#4a5568;font-size:0.85em;padding:10px 0 30px;">
-        🏅 APEX Metals AI · Built by Hadi · Powered by Claude AI · Streamlit Cloud
-    </p>
-    """, unsafe_allow_html=True)
+    from apex_landing_streamlit import render_landing
+    render_landing(launch_url="?view=dashboard")
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
@@ -415,6 +246,9 @@ for _mk in ("silver_metal_bundle", "platinum_metal_bundle",
             "silver_ai_explanation", "platinum_ai_explanation"):
     if _mk not in st.session_state:
         st.session_state[_mk] = None
+
+if st.query_params.get("view") == "dashboard":
+    st.session_state.show_dashboard = True
 
 if not st.session_state.show_dashboard:
     show_landing_page()
