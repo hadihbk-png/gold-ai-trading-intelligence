@@ -108,6 +108,34 @@ def _dark(fig, height=420):
     return fig
 
 
+@st.cache_resource
+def _get_track_store():
+    from src.track_store_factory import make_sheets_store_from_secrets
+    return make_sheets_store_from_secrets()
+
+
+def _safe_log_prediction(*, metal, signal_dict, verdict, frame, regime, model_version):
+    try:
+        from src.track_logger import log_prediction
+        close = float(frame["Close"].iloc[-1])
+        raw_atr = float(frame["ATR"].iloc[-1]) if "ATR" in frame.columns else close * 0.01
+        atr_pct = (raw_atr / close * 100) if close else None
+        log_prediction(
+            store=_get_track_store(), metal=metal,
+            timestamp_utc=datetime.now(timezone.utc), as_of_date=frame.index[-1],
+            raw_signal=int(signal_dict["raw_signal_int"]),
+            displayed_signal=int(signal_dict["signal_int"]),
+            verdict=verdict, proba_vector=signal_dict.get("proba_vec"),
+            price_at_decision=close, atr_pct=atr_pct,
+            filter_state=signal_dict.get("filter_reason"),
+            model_version=model_version,
+            data_provenance={"source": "yfinance", "as_of_bar": str(frame.index[-1])[:10]},
+            regime=regime,
+        )
+    except Exception:
+        pass
+
+
 # ── Step 5 helpers ─────────────────────────────────────────────────────────────
 def compute_decision_verdict(signal, confidence,
                               regime, rsi, bb_pctb,
@@ -1285,6 +1313,9 @@ if selected_metal != "🥇 Gold (XAU)":
             classifier_consensus=_m_dic_consensus,
             roll_source=_m_roll_lbl,
         )
+        _safe_log_prediction(metal=_met_name, signal_dict=_met_sig, verdict=_m_verdict,
+                             frame=_mdf, regime=_m_dic_regime,
+                             model_version=_met_bnd.get("trained_at", ""))
         _m_v_bg = {"#22c55e": "#071507", "#f59e0b": "#161000", "#ef4444": "#160707"}
         st.markdown(
             f"""<div style="border:2px solid {_m_v_color};border-radius:14px;
@@ -2104,6 +2135,9 @@ if signal and selected_metal == "🥇 Gold (XAU)":
         classifier_consensus=_dic_consensus,
         roll_source=_dic_roll_label,
     )
+    _safe_log_prediction(metal="gold", signal_dict=signal, verdict=_verdict,
+                         frame=df, regime=_dic_regime,
+                         model_version=_rl.get("last_retrain_utc", ""))
 
     _v_bg = {"#22c55e": "#071507", "#f59e0b": "#161000", "#ef4444": "#160707"}
     st.markdown(
