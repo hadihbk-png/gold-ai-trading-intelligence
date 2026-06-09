@@ -221,9 +221,33 @@ def compute_trade_zones(price, signal, atr):
 
 
 # ── Landing page ───────────────────────────────────────────────────────────────
+@st.cache_data(ttl=900, show_spinner=False)
+def _landing_signals_from_store():
+    """Latest logged verdict per metal from the track record. Cached; any
+    failure returns {} so the cards fall back to honest teasers."""
+    try:
+        from src.track_store_factory import make_sheets_store_from_secrets
+        records = make_sheets_store_from_secrets().read_all()
+        latest = {}
+        for r in records:
+            m = (r.get("metal") or "").lower()
+            if m not in ("gold", "silver", "platinum"):
+                continue
+            d = r.get("as_of_date") or ""
+            if m not in latest or d >= (latest[m].get("as_of_date") or ""):
+                latest[m] = r
+        return {
+            m: {"verdict": r.get("verdict"), "confidence": r.get("confidence_pct"),
+                "regime": r.get("regime"), "as_of": r.get("as_of_date")}
+            for m, r in latest.items()
+        }
+    except Exception:
+        return {}
+
+
 def show_landing_page():
     from apex_landing_streamlit import render_landing
-    render_landing(launch_url="?view=dashboard")
+    render_landing(signals=_landing_signals_from_store(), launch_url="?view=dashboard")
 
 
 # ── Session state ──────────────────────────────────────────────────────────────

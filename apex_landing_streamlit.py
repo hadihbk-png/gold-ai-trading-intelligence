@@ -12,9 +12,9 @@ USAGE
 
     render_landing(
         signals={
-            "gold":     {"verdict": "NO-TRADE", "confidence": 41.7, "regime": "Range-bound regime · no edge today"},
-            "silver":   {"verdict": "NO-TRADE", "confidence": 37.8, "regime": "Low conviction · filter override"},
-            "platinum": {"verdict": "CAUTION",  "confidence": 41.6, "regime": "Mixed signals · size down"},
+            "gold":     {"verdict": "NO-TRADE", "confidence": 41.7, "regime": "neutral",  "as_of": "2026-06-08"},
+            "silver":   {"verdict": "NO-TRADE", "confidence": 37.8, "regime": "neutral",  "as_of": "2026-06-08"},
+            "platinum": {"verdict": "CAUTION",  "confidence": 41.6, "regime": "high_vol", "as_of": "2026-06-08"},
         },
         evidence=[
             {"v": "41.1%",       "k": "Directional accuracy",         "ctx": "+20pp over a coin toss"},
@@ -29,20 +29,25 @@ USAGE
 ------------------------------------------------------------------------------
 WIRE POINTS
 ------------------------------------------------------------------------------
-- signals[metal]["verdict"]    -> one of "GO" | "CAUTION" | "NO-TRADE"
-- signals[metal]["confidence"] -> a number (percent), or a preformatted string
-- signals[metal]["regime"]     -> a short one-line note
+- signals[metal]               -> a dict for real data, or None/missing for a teaser card
+- signals[metal]["verdict"]    -> "GO" | "CAUTION" | "NO-TRADE"
+- signals[metal]["confidence"] -> a 0-100 number (the store's confidence_pct), or None
+- signals[metal]["regime"]     -> the stored regime KEY ("high_vol"/"trending"/"neutral")
+                                  or None; it is mapped to a readable label internally
+- signals[metal]["as_of"]      -> "YYYY-MM-DD"; shown as the card's "As of" line
 - evidence                     -> the honestly-framed stat strip (swap in real figures)
 - launch_url                   -> where every CTA points. In multipage Streamlit use the
                                   page path (e.g. "/Dashboard"); or replace the anchors
                                   with st.page_link if you prefer native routing.
 
-The defaults below are illustrative and match the HTML mockup; pass your live values in.
+Defaults are the honest teaser state (no live numbers). A card only shows a verdict,
+confidence, regime and "As of" line when real data is passed for that metal — so the
+page can never display a fabricated reading.
 
 ------------------------------------------------------------------------------
 NOTES
 ------------------------------------------------------------------------------
-- CSS animations (the live-dot pulse, hover transitions) work in Streamlit.
+- CSS animations and hover transitions work in Streamlit.
 - The scroll-reveal animations from the HTML mockup are intentionally gone (they
   required JavaScript, which st.markdown strips). The page just renders fully visible.
 - The sticky nav relies on position:sticky; if it behaves oddly with your Streamlit
@@ -52,12 +57,16 @@ NOTES
 import streamlit as st
 
 # --------------------------------------------------------------------------- #
-# Defaults (illustrative — pass your live values into render_landing)
+# Defaults: the honest "no live data" state. Cards render as teasers, never with
+# fabricated numbers. Real values are supplied via render_landing(signals=...).
 # --------------------------------------------------------------------------- #
-DEFAULT_SIGNALS = {
-    "gold":     {"verdict": "NO-TRADE", "confidence": 41.7, "regime": "Range-bound regime · no edge today"},
-    "silver":   {"verdict": "NO-TRADE", "confidence": 37.8, "regime": "Low conviction · filter override"},
-    "platinum": {"verdict": "CAUTION",  "confidence": 41.6, "regime": "Mixed signals · size down"},
+DEFAULT_SIGNALS = {"gold": None, "silver": None, "platinum": None}
+
+# The store keeps `regime` as a mapped key, not a display label — prettify it.
+_REGIME_LABELS = {
+    "high_vol": "High volatility",
+    "trending": "Trending",
+    "neutral":  "Neutral · range-bound",
 }
 
 DEFAULT_EVIDENCE = [
@@ -185,6 +194,12 @@ html{scroll-behavior:smooth}
 .apex-lp .card-foot{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:7px}
 .apex-lp .livedot{width:6px;height:6px;border-radius:50%;background:var(--go);animation:apexpulse 2.4s infinite}
 @keyframes apexpulse{0%{box-shadow:0 0 0 0 rgba(65,196,99,.45)}70%{box-shadow:0 0 0 6px rgba(65,196,99,0)}100%{box-shadow:0 0 0 0 rgba(65,196,99,0)}}
+.apex-lp .dot-static{width:6px;height:6px;border-radius:50%;background:var(--gold-deep)}
+.apex-lp .card.teaser{display:flex;flex-direction:column}
+.apex-lp .teaser-msg{color:var(--muted);font-size:14px;margin:6px 0 18px}
+.apex-lp .card.teaser .card-foot{margin-top:auto;border-top:none;padding-top:0}
+.apex-lp .card-link{font-family:var(--mono);font-size:12px;color:var(--gold);transition:color .2s}
+.apex-lp .card-link:hover{color:var(--gold-bright)}
 
 .apex-lp .chain-band{background:linear-gradient(180deg,var(--ink),var(--ink-2));position:relative}
 .apex-lp .chain-inner{border:1px solid var(--line-gold);border-radius:18px;padding:40px clamp(22px,4vw,48px);background:rgba(18,24,38,.5)}
@@ -272,16 +287,34 @@ _IC = {
 
 
 def _signal_card(key, label, ticker, glyph, accent, data):
-    vclass, vlabel = _verdict_meta(data.get("verdict", "NO-TRADE"))
-    conf = _fmt_conf(data.get("confidence", ""))
-    regime = data.get("regime", "")
-    return f"""
-      <div class="card {accent}"><span class="accent"></span>
-        <div class="card-top"><div class="metal"><span class="glyph">{glyph}</span><div><div class="nm">{label}</div><div class="tk">{ticker}</div></div></div><span class="verdict {vclass}">{vlabel}</span></div>
-        <div class="conf"><span class="num">{conf}</span><span class="lab">model confidence</span></div>
-        <div class="regime">{regime}</div>
-        <div class="card-foot"><span class="livedot"></span> Live · as of last settled close</div>
-      </div>"""
+    # No real data -> honest teaser card. Never fabricates numbers or a verdict.
+    if not data or not data.get("verdict"):
+        return (
+            f'<div class="card {accent} teaser"><span class="accent"></span>'
+            f'<div class="card-top"><div class="metal"><span class="glyph">{glyph}</span>'
+            f'<div><div class="nm">{label}</div><div class="tk">{ticker}</div></div></div></div>'
+            f'<div class="teaser-msg">Today&rsquo;s read is live in the dashboard.</div>'
+            f'<div class="card-foot"><a class="card-link" href="?view=dashboard">View today&rsquo;s read &rarr;</a></div>'
+            f'</div>'
+        )
+    vclass, vlabel = _verdict_meta(data["verdict"])
+    conf_val = data.get("confidence")
+    conf = _fmt_conf(conf_val) if conf_val is not None else ""
+    regime_raw = data.get("regime")
+    regime = _REGIME_LABELS.get(regime_raw, regime_raw) if regime_raw else ""
+    as_of = data.get("as_of") or ""
+    conf_html = (f'<div class="conf"><span class="num">{conf}</span>'
+                 f'<span class="lab">model confidence</span></div>') if conf else ""
+    regime_html = f'<div class="regime">{regime}</div>' if regime else ""
+    foot_html = (f'<div class="card-foot"><span class="dot-static"></span> As of {as_of}</div>'
+                 if as_of else "")
+    return (
+        f'<div class="card {accent}"><span class="accent"></span>'
+        f'<div class="card-top"><div class="metal"><span class="glyph">{glyph}</span>'
+        f'<div><div class="nm">{label}</div><div class="tk">{ticker}</div></div></div>'
+        f'<span class="verdict {vclass}">{vlabel}</span></div>'
+        f'{conf_html}{regime_html}{foot_html}</div>'
+    )
 
 
 def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamlit_chrome=True):
@@ -441,11 +474,21 @@ def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamli
   </footer>
 </div>
 """
+    # Streamlit runs st.markdown through a Markdown parser first. A blank line
+    # ends an HTML block and any 4-space indent becomes a code block — which
+    # would dump raw HTML onto the page. Collapsing to a single line forces the
+    # whole thing to be parsed as one raw-HTML block.
     html = "".join(line.strip() for line in html.splitlines())
     st.markdown(html, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
     # Local preview: `streamlit run apex_landing_streamlit.py`
+    # Sample data below shows the real-data card mode. Call render_landing() with
+    # no signals to preview the honest teaser fallback instead.
     st.set_page_config(page_title="APEX Metals AI", layout="wide")
-    render_landing()
+    render_landing(signals={
+        "gold":     {"verdict": "NO-TRADE", "confidence": 41.7, "regime": "neutral",  "as_of": "2026-06-08"},
+        "silver":   {"verdict": "NO-TRADE", "confidence": 37.8, "regime": "neutral",  "as_of": "2026-06-08"},
+        "platinum": {"verdict": "CAUTION",  "confidence": 41.6, "regime": "high_vol", "as_of": "2026-06-08"},
+    })
