@@ -35,7 +35,7 @@ def _is_cache_stale(df: pd.DataFrame) -> bool:
     if df is None or df.empty:
         return True
     last_bar = pd.Timestamp(df.index[-1]).normalize().date()
-    return (datetime.today().date() - last_bar).days > _CACHE_STALE_DAYS
+    return (datetime.now(timezone.utc).date() - last_bar).days > _CACHE_STALE_DAYS
 
 
 def _flatten(df: pd.DataFrame) -> pd.DataFrame:
@@ -117,10 +117,10 @@ def download_data(
     ext = [c for c in gold.columns if c.endswith("_Close")]
     gold[ext] = gold[ext].ffill()
 
+    settled = _drop_unsettled_tail(gold)
     with open(cache_path, "wb") as f:
-        pickle.dump(gold, f)
-
-    return _drop_unsettled_tail(gold)
+        pickle.dump(settled, f)
+    return settled
 
 
 def get_train_test_split(df: pd.DataFrame):
