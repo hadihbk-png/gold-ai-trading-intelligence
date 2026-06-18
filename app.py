@@ -4,6 +4,7 @@ Streamlit multi-page app  |  NOT FINANCIAL ADVICE  |  Personal research only
 """
 import json
 from collections import Counter
+import hashlib
 import os, sys, warnings, time
 from datetime import datetime, timedelta, timezone
 import numpy as np
@@ -422,6 +423,12 @@ if st.session_state.reg_results is None:
     # until a genuinely new bar arrives within this session.
     if st.session_state.last_retrain_bar_date is None:
         st.session_state.last_retrain_bar_date = _cur_bar_date
+    try:
+        _pkl_path = os.path.join(MODELS_DIR, "models.pkl")
+        with open(_pkl_path, "rb") as _f:
+            st.session_state.gold_model_version = hashlib.sha256(_f.read()).hexdigest()[:12]
+    except Exception:
+        st.session_state.gold_model_version = ""
 
 # Auto-load Silver / Platinum models if not yet in session state
 if (st.session_state.silver_metal_bundle is None
@@ -1995,7 +2002,7 @@ if signal and selected_metal == "🥇 Gold (XAU)":
     )
     _safe_log_prediction(metal="gold", signal_dict=signal, verdict=_verdict,
                          frame=df, regime=_dic_regime,
-                         model_version=_rl.get("last_retrain_utc", ""))
+                         model_version=st.session_state.get("gold_model_version", ""))
 
     _v_bg = {"#22c55e": "#071507", "#f59e0b": "#161000", "#ef4444": "#160707"}
     st.markdown(
