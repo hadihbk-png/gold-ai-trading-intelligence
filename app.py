@@ -227,8 +227,9 @@ def _landing_signals_from_store():
     """Latest logged verdict per metal from the track record. Cached; any
     failure returns {} so the cards fall back to honest teasers."""
     try:
-        from src.track_store_factory import make_sheets_store_from_secrets
+        from src.track_store_factory import make_sheets_store_from_secrets, dedupe_latest
         records = make_sheets_store_from_secrets().read_all()
+        records = dedupe_latest(records)
         latest = {}
         for r in records:
             m = (r.get("metal") or "").lower()
