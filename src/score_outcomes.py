@@ -128,17 +128,25 @@ def score_all_pending(store: Store) -> dict:
             stats["skipped_unresolved"] += 1
             continue
 
-        resolve_date = resolve_dt.date()
-        resolve_ts   = pd.Timestamp(resolve_date)
+        # ── Settled close: first bar strictly after as_of_date ───────────────
+        # Uses df.index > as_of_ts (shift(-1) semantics) rather than an exact
+        # calendar-date lookup, so predictions made before holidays or weekend
+        # gaps always resolve to the next real trading bar — identical to the
+        # training target (close.pct_change().shift(-1)).
+        metal    = row["metal"]
+        df       = _get_df(metal)
+        as_of_ts = pd.Timestamp(row["as_of_date"])
 
-        # ── Settled close available? ──────────────────────────────────────────
-        metal = row["metal"]
-        df = _get_df(metal)
-
-        if df.empty or resolve_ts not in df.index:
+        if df.empty:
             stats["skipped_no_close"] += 1
             continue
 
+        later = df.index[df.index > as_of_ts]
+        if len(later) == 0:
+            stats["skipped_no_close"] += 1
+            continue
+
+        resolve_ts        = later[0]
         actual_price      = float(df.loc[resolve_ts, "Close"])
         price_at_decision = float(row["price_at_decision"])
         raw_signal        = int(row["raw_signal"])

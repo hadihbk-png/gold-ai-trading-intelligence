@@ -115,6 +115,40 @@ def test_sideways_flat_return(store, monkeypatch):
     assert row["realized_return_net_of_cost"] == 0.0
 
 
+# ── Test 1d: Holiday / gap — resolves to first bar after as_of, not calendar date ──
+
+def test_holiday_gap_resolves_to_next_trading_bar(store, monkeypatch):
+    """as_of = Friday, index skips Mon (holiday) and has Tue — must resolve to Tue.
+
+    Validates shift(-1) semantics: the scorer looks for the first index bar
+    strictly after as_of_date, so a missing Monday never causes skipped_no_close.
+    """
+    friday   = date(2024, 1, 12)   # Friday
+    tuesday  = date(2024, 1, 16)   # Monday 2024-01-15 = MLK Day (market closed) → Tue
+    tue_close = PRICE * 1.008      # +0.8% > +0.5% band → UP
+
+    _log(store, raw_signal=2, as_of=friday)
+
+    # Index has Friday + Tuesday only (Monday gap simulates the holiday)
+    idx = pd.DatetimeIndex([pd.Timestamp(friday), pd.Timestamp(tuesday)])
+    gap_df = pd.DataFrame(
+        {"Open": [PRICE, tue_close], "High": [PRICE, tue_close],
+         "Low":  [PRICE, tue_close], "Close": [PRICE, tue_close], "Volume": [1000, 1000]},
+        index=idx,
+    )
+    monkeypatch.setattr("src.score_outcomes._fetch_ohlcv", lambda _m: gap_df)
+
+    s = score_all_pending(store)
+
+    assert s["scored"] == 1, f"expected scored=1, got {s}"
+    assert s["skipped_no_close"] == 0
+    row = store.read_all()[0]
+    assert row["realized_direction"] == 2          # UP
+    assert row["hit"] is True
+    expected_return = round(tue_close / PRICE - 1 - ROUND_TRIP_COST_BPS / 10_000, 8)
+    assert abs(row["realized_return_net_of_cost"] - expected_return) < 1e-9
+
+
 # ── Test 2: Idempotency ────────────────────────────────────────────────────────
 
 def test_idempotency(store, monkeypatch):
