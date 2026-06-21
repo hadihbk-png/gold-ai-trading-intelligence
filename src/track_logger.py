@@ -30,6 +30,16 @@ GENESIS_HASH = "0" * 64       # chain-head sentinel used as prev_hash for the fi
 _NOMINAL_SETTLE_HOUR = "17:00:00"  # nominal UTC time; scoring pass refines with exchange calendar
 _CLASS_MAP = {0: "DOWN", 1: "SIDEWAYS", 2: "UP"}  # proba_vector = [P(DOWN), P(SIDEWAYS), P(UP)]
 
+# Fields backfilled by the scoring pass — excluded from _HASH_FIELDS; touching them
+# does not change record_hash and does not break verify_chain.
+_OUTCOME_FIELDS = frozenset({
+    "actual_price",
+    "realized_direction",
+    "hit",
+    "realized_return_net_of_cost",
+    "scored_at",
+})
+
 _log = logging.getLogger(__name__)
 
 
@@ -47,6 +57,14 @@ class Store(Protocol):
 
     def append(self, row: dict) -> None:
         """Append one row to the end; never reorder or sort."""
+        ...
+
+    def update_outcome(self, prediction_id: str, outcome: dict) -> None:
+        """Update only the five outcome fields for *prediction_id*.
+
+        Must not touch any _HASH_FIELDS value, record_hash, or any helper
+        column — the SHA-256 chain must remain valid after the call.
+        """
         ...
 
 
@@ -77,6 +95,24 @@ class LocalJsonStore:
     def append(self, row: dict) -> None:
         with open(self._path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def update_outcome(self, prediction_id: str, outcome: dict) -> None:
+        """Update only outcome fields for *prediction_id*; rewrites the JSONL file in-place."""
+        bad = set(outcome) - _OUTCOME_FIELDS
+        if bad:
+            raise ValueError(f"update_outcome: illegal keys {bad!r}")
+        rows = self.read_all()
+        for row in rows:
+            if row.get("prediction_id") == prediction_id:
+                original_hash = row.get("record_hash")
+                row.update(outcome)
+                assert row.get("record_hash") == original_hash, \
+                    "update_outcome must not modify record_hash"
+                with open(self._path, "w", encoding="utf-8") as fh:
+                    for r in rows:
+                        fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+                return
+        raise KeyError(f"prediction_id not found: {prediction_id!r}")
 
 
 # ── SHEETS STORE ───────────────────────────────────────────────────────────────
@@ -119,6 +155,39 @@ class SheetsStore:
         payload_json = json.dumps(row, ensure_ascii=False)
         full_row = [str(row.get(col, "")) for col in HELPER_COLUMNS] + [payload_json]
         self._ws.append_row(full_row, value_input_option="RAW")
+
+    def update_outcome(self, prediction_id: str, outcome: dict) -> None:
+        """Update only payload_json outcome fields for *prediction_id*.
+
+        Locates the matching row by the prediction_id helper column, then
+        rewrites only the payload_json cell.  The record_hash helper column
+        and all other cells are not touched.
+        """
+        bad = set(outcome) - _OUTCOME_FIELDS
+        if bad:
+            raise ValueError(f"update_outcome: illegal keys {bad!r}")
+        vals = self._ws.get_all_values()
+        if not vals:
+            raise KeyError(f"prediction_id not found: {prediction_id!r}")
+        header = vals[0]
+        try:
+            pj_idx  = header.index("payload_json")
+            pid_idx = header.index("prediction_id")
+        except ValueError as exc:
+            raise StoreIntegrityError(f"Sheet header missing column: {exc}") from exc
+        for sheet_row_idx, raw_row in enumerate(vals[1:], start=2):  # row 1 = header
+            if pid_idx < len(raw_row) and raw_row[pid_idx] == prediction_id:
+                original_payload = json.loads(raw_row[pj_idx])
+                original_hash    = original_payload.get("record_hash")
+                updated_payload  = {**original_payload, **outcome}
+                assert updated_payload.get("record_hash") == original_hash, \
+                    "update_outcome must not modify record_hash"
+                self._ws.update_cell(
+                    sheet_row_idx, pj_idx + 1,
+                    json.dumps(updated_payload, ensure_ascii=False),
+                )
+                return
+        raise KeyError(f"prediction_id not found: {prediction_id!r}")
 
     def read_all(self) -> list[dict]:
         vals = self._ws.get_all_values()
