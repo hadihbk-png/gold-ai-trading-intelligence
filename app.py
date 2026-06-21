@@ -424,12 +424,17 @@ if st.session_state.reg_results is None:
     # until a genuinely new bar arrives within this session.
     if st.session_state.last_retrain_bar_date is None:
         st.session_state.last_retrain_bar_date = _cur_bar_date
-    try:
-        _pkl_path = os.path.join(MODELS_DIR, "models.pkl")
+
+# Keep gold_model_version in sync with the on-disk artifact (refreshes after a local retrain).
+try:
+    _pkl_path = os.path.join(MODELS_DIR, "models.pkl")
+    _mtime = os.path.getmtime(_pkl_path)
+    if st.session_state.get("_gold_pkl_mtime") != _mtime:
         with open(_pkl_path, "rb") as _f:
             st.session_state.gold_model_version = hashlib.sha256(_f.read()).hexdigest()[:12]
-    except Exception:
-        st.session_state.gold_model_version = ""
+        st.session_state["_gold_pkl_mtime"] = _mtime
+except Exception:
+    st.session_state.setdefault("gold_model_version", "")
 
 # Auto-load Silver / Platinum models if not yet in session state
 if (st.session_state.silver_metal_bundle is None
