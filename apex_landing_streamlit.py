@@ -72,7 +72,7 @@ _REGIME_LABELS = {
 DEFAULT_EVIDENCE = [
     {"v": "41.1%",        "k": "Directional accuracy",        "ctx": "+20pp over a coin toss"},
     {"v": "55.6%",        "k": "DOWN-call accuracy",          "ctx": "strongest class"},
-    {"v": "Walk-forward", "k": "Validation method",           "ctx": "out-of-sample, not curve-fit"},
+    {"v": "Walk-forward", "k": "Validation method",           "ctx": "out-of-sample, not curve-fit", "vclass": "v-text"},
     {"v": "100%",         "k": "Calls logged & hash-chained", "ctx": "before the outcome is known"},
 ]
 
@@ -231,6 +231,7 @@ html{scroll-behavior:smooth}
 .apex-lp .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
 .apex-lp .stat{padding:22px;border-radius:var(--r);background:var(--raised);border:1px solid var(--line)}
 .apex-lp .stat .v{font-family:var(--mono);font-weight:500;font-size:clamp(24px,3vw,30px);color:var(--gold);letter-spacing:-.01em}
+.apex-lp .stat .v-text{font-size:clamp(18px,1.8vw,22px);white-space:nowrap}
 .apex-lp .stat .k{font-size:13px;color:var(--muted);margin-top:6px}
 .apex-lp .stat .ctx{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:8px}
 .apex-lp .fineprint{color:var(--dim);font-size:13px;margin-top:22px;max-width:70ch}
@@ -331,7 +332,7 @@ def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamli
     )
 
     stats = "".join(
-        f'<div class="stat"><div class="v">{s["v"]}</div><div class="k">{s["k"]}</div><div class="ctx">{s["ctx"]}</div></div>'
+        f'<div class="stat"><div class="v {s.get("vclass","")}">{s["v"]}</div><div class="k">{s["k"]}</div><div class="ctx">{s["ctx"]}</div></div>'
         for s in evidence
     )
 
