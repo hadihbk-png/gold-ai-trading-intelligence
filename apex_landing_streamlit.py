@@ -498,7 +498,7 @@ def render_landing(*, signals=None, evidence=None, chain_proof=None, launch_url=
           <p>Every forecast is logged before the outcome is known and scored against the next settled bar. Realised live accuracy accumulates on the Track Record page as scored predictions grow &mdash; that is where edge will be claimed or refuted.</p>
         </div>
         <div class="stat-row">{stats}</div>
-        <p class="fineprint">Out-of-sample walk-forward backtest (WFV) &middot; independent test windows &middot; not curve-fit on the full history &middot; three-way UP / SIDEWAYS / DOWN against a ~33% random baseline. Live hit-rate, Wilson CI, and equity curve: <a href="./6_Track_Record" style="color:var(--gold);text-decoration:none">Track Record (page&nbsp;6)</a>.</p>
+        <p class="fineprint">Out-of-sample walk-forward backtest (WFV) &middot; independent test windows &middot; not curve-fit on the full history &middot; three-way UP / SIDEWAYS / DOWN against a ~33% random baseline. Live hit-rate, Wilson CI, and equity curve: <a href="/Track_Record" target="_self" style="color:var(--gold);text-decoration:none">Track Record (page&nbsp;6)</a>.</p>
       </div>
     </section>
 

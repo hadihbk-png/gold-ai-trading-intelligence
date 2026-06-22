@@ -26,6 +26,7 @@ from src.config import DATA_DIR
 from src.signals import SIGNAL_LABELS, SIGNAL_COLORS
 from src.track_logger import LocalJsonStore, verify_chain
 from src.track_stats import wilson_ci
+from src.track_store_factory import dedupe_latest
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -90,13 +91,15 @@ st.caption(
 )
 
 rows, chain_ok, store_label = _load_records()
-n_total = len(rows)
+n_total  = len(rows)
+n_unique = len(dedupe_latest(rows))   # unique (metal, as_of_date) pairs
+n_dupes  = n_total - n_unique
 
 # ── Section 1: Integrity badge ─────────────────────────────────────────────────
 
 if chain_ok:
     st.success(
-        f"**{n_total} prediction{'s' if n_total != 1 else ''} · Chain verified** — "
+        f"**{n_total} chain record{'s' if n_total != 1 else ''} · Chain verified** — "
         "SHA-256 integrity check passed. No record has been altered since logging."
     )
 else:
@@ -106,6 +109,14 @@ else:
         "Do not rely on these statistics."
     )
 st.caption(f"Store: {store_label}  ·  Cache refreshes every 5 min")
+if n_dupes > 0:
+    st.caption(
+        f"Stats count **{n_unique}** unique trading-day "
+        f"prediction{'s' if n_unique != 1 else ''} "
+        f"({n_dupes} re-logged duplicate{'s' if n_dupes != 1 else ''} "
+        f"collapsed by `(metal, as_of_date)`). "
+        f"Full chain: {n_total} record{'s' if n_total != 1 else ''}."
+    )
 
 if n_total == 0:
     st.info(
@@ -137,8 +148,18 @@ if "hit" in df.columns:
 if "metal" in df.columns:
     df["metal"] = df["metal"].str.lower()
 
-df_scored  = df[df["scored_at"].notna()].copy()
-df_pending = df[df["scored_at"].isna()].copy()
+# Dedup for stats: one row per (metal, as_of_date), latest timestamp_utc wins.
+# df stays raw so chain count (n_total) and the full ledger remain unfiltered.
+if "timestamp_utc" in df.columns:
+    df_dedup = (df
+        .sort_values("timestamp_utc", ascending=True, na_position="first")
+        .drop_duplicates(subset=["metal", "as_of_date"], keep="last")
+        .reset_index(drop=True))
+else:
+    df_dedup = df.copy()
+
+df_scored  = df_dedup[df_dedup["scored_at"].notna()].copy()
+df_pending = df_dedup[df_dedup["scored_at"].isna()].copy()
 n_scored   = len(df_scored)
 n_pending  = len(df_pending)
 
@@ -149,12 +170,12 @@ st.subheader("Prediction Counts")
 
 _rows = []
 for _m in METALS:
-    _all = df[df["metal"] == _m]
+    _all = df_dedup[df_dedup["metal"] == _m]
     _sc  = df_scored[df_scored["metal"] == _m]
     _pe  = df_pending[df_pending["metal"] == _m]
     _rows.append({"Metal": _m.capitalize(), "Logged": len(_all),
                   "Scored": len(_sc), "Pending": len(_pe)})
-_rows.append({"Metal": "Overall", "Logged": n_total,
+_rows.append({"Metal": "Overall", "Logged": n_unique,
               "Scored": n_scored, "Pending": n_pending})
 st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
 
