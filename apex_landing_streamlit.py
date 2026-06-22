@@ -16,12 +16,11 @@ USAGE
             "silver":   {"verdict": "NO-TRADE", "confidence": 37.8, "regime": "neutral",  "as_of": "2026-06-08"},
             "platinum": {"verdict": "CAUTION",  "confidence": 41.6, "regime": "high_vol", "as_of": "2026-06-08"},
         },
-        evidence=[
-            {"v": "41.1%",       "k": "Directional accuracy",         "ctx": "+20pp over a coin toss"},
-            {"v": "55.6%",       "k": "DOWN-call accuracy",           "ctx": "strongest class"},
-            {"v": "Walk-forward","k": "Validation method",            "ctx": "out-of-sample, not curve-fit"},
-            {"v": "100%",        "k": "Calls logged & hash-chained",  "ctx": "before the outcome is known"},
-        ],
+        chain_proof={                   # from _landing_chain_proof() in app.py
+            "n": 7, "ok": True,
+            "genesis": "abc1def2...", "latest": "xyz9uvw8...",
+            "nodes": ["mid1hash...", "mid2hash..."],
+        },
         launch_url="/Dashboard",        # path to your dashboard page; "#" if unsure
         hide_streamlit_chrome=True,     # hide the default header / menu / toolbar
     )
@@ -70,10 +69,8 @@ _REGIME_LABELS = {
 }
 
 DEFAULT_EVIDENCE = [
-    {"v": "41.1%",        "k": "Directional accuracy",        "ctx": "+20pp over a coin toss"},
-    {"v": "55.6%",        "k": "DOWN-call accuracy",          "ctx": "strongest class"},
-    {"v": "Walk-forward", "k": "Validation method",           "ctx": "out-of-sample, not curve-fit", "vclass": "v-text"},
-    {"v": "100%",         "k": "Calls logged & hash-chained", "ctx": "before the outcome is known"},
+    {"v": "Walk-forward", "k": "Validation method",  "ctx": "out-of-sample WFV · not curve-fit", "vclass": "v-text"},
+    {"v": "100%",         "k": "Calls hash-chained", "ctx": "logged before the outcome is known"},
 ]
 
 _METALS = [
@@ -219,6 +216,9 @@ html{scroll-behavior:smooth}
 .apex-lp .verified{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px;margin-left:6px}
 .apex-lp .verified .vc{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(65,196,99,.4);background:rgba(65,196,99,.08);color:var(--go)}
 .apex-lp .verified .lbl{font-family:var(--mono);font-size:10px;color:var(--go);letter-spacing:.04em}
+.apex-lp .chain-neutral{align-items:center;justify-content:center;min-height:80px;padding:24px;border:1px dashed var(--line);border-radius:12px;color:var(--dim);font-family:var(--mono);font-size:12px}
+.apex-lp .chain-broken-badge .vc{border-color:rgba(255,75,75,.4)!important;background:rgba(255,75,75,.08)!important;color:#FF4B4B!important}
+.apex-lp .chain-broken-badge .lbl{color:#FF4B4B!important;font-size:11px}
 
 .apex-lp .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .apex-lp .trust-card{padding:24px 22px;border:1px solid var(--line);border-radius:var(--r);background:var(--raised)}
@@ -228,7 +228,7 @@ html{scroll-behavior:smooth}
 .apex-lp .trust-card p{color:var(--muted);font-size:14px}
 
 .apex-lp .evidence{background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.apex-lp .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.apex-lp .stat-row{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;max-width:640px}
 .apex-lp .stat{padding:22px;border-radius:var(--r);background:var(--raised);border:1px solid var(--line)}
 .apex-lp .stat .v{font-family:var(--mono);font-weight:500;font-size:clamp(24px,3vw,30px);color:var(--gold);letter-spacing:-.01em}
 .apex-lp .stat .v-text{font-size:clamp(18px,1.8vw,22px);white-space:nowrap}
@@ -287,6 +287,81 @@ _IC = {
 }
 
 
+def _chain_viz_html(proof) -> str:
+    """Render the chain-viz HTML from a chain_proof dict.
+
+    States
+    ------
+    None / unavailable          -> neutral grey placeholder, no check mark
+    n == 0                      -> neutral "no predictions logged", no check mark
+    n > 0, ok == False          -> red CHAIN BROKEN banner
+    n > 0, ok == True           -> green verified, real abbreviated hashes + record count
+    """
+    def _abbrev(h):
+        if not h or len(h) < 8:
+            return h or "—"
+        return f"{h[:4]}…{h[-4:]}"
+
+    if not proof or proof.get("unavailable"):
+        return (
+            '<div class="chain-viz chain-neutral">'
+            '<span class="chain-status-msg">Chain data unavailable</span>'
+            '</div>'
+        )
+
+    n = proof.get("n", 0)
+    if n == 0:
+        return (
+            '<div class="chain-viz chain-neutral">'
+            '<span class="chain-status-msg">'
+            'No predictions logged yet — the genesis hash will anchor here after the first call.'
+            '</span>'
+            '</div>'
+        )
+
+    ok       = proof.get("ok", False)
+    genesis  = proof.get("genesis")
+    latest   = proof.get("latest")
+    interior = proof.get("nodes", [])
+
+    node_seq = [(_abbrev(genesis), "genesis")]
+    for i, h in enumerate(interior):
+        node_seq.append((_abbrev(h), f"record {i + 2}"))
+    if n >= 2:
+        node_seq.append((_abbrev(latest), "latest"))
+
+    parts = []
+    for i, (chip, lbl) in enumerate(node_seq):
+        head = " head" if (n >= 2 and i == len(node_seq) - 1) else ""
+        parts.append(
+            f'<div class="node{head}"><span class="hashchip">{chip}</span>'
+            f'<span class="lbl">{lbl}</span></div>'
+        )
+        if i < len(node_seq) - 1:
+            parts.append('<div class="link"></div>')
+
+    if ok:
+        label = f"chain verified &middot; {n} record{'s' if n != 1 else ''}"
+        badge = (
+            f'<div class="verified">'
+            f'<span class="vc">{_IC["check"]}</span>'
+            f'<span class="lbl">{label}</span>'
+            f'</div>'
+        )
+    else:
+        badge = (
+            '<div class="verified chain-broken-badge">'
+            '<span class="vc">&#10006;</span>'
+            '<span class="lbl">CHAIN BROKEN &mdash; integrity check failed</span>'
+            '</div>'
+        )
+
+    return (
+        '<div class="chain-viz" role="img" aria-label="Hash-linked prediction chain">'
+        + "".join(parts) + badge + '</div>'
+    )
+
+
 def _signal_card(key, label, ticker, glyph, accent, data):
     # No real data -> honest teaser card. Never fabricates numbers or a verdict.
     if not data or not data.get("verdict"):
@@ -318,7 +393,7 @@ def _signal_card(key, label, ticker, glyph, accent, data):
     )
 
 
-def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamlit_chrome=True):
+def render_landing(*, signals=None, evidence=None, chain_proof=None, launch_url="#", hide_streamlit_chrome=True):
     """Render the APEX Metals AI landing page. Presentation-only and additive."""
     signals = {**DEFAULT_SIGNALS, **(signals or {})}
     evidence = evidence or DEFAULT_EVIDENCE
@@ -335,6 +410,8 @@ def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamli
         f'<div class="stat"><div class="v {s.get("vclass","")}">{s["v"]}</div><div class="k">{s["k"]}</div><div class="ctx">{s["ctx"]}</div></div>'
         for s in evidence
     )
+
+    chain_viz = _chain_viz_html(chain_proof)
 
     html = f"""
 <div class="apex-lp">
@@ -393,16 +470,7 @@ def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamli
               <span class="tag">{_IC['check']} Settled-bar discipline</span>
             </div>
           </div>
-          <div class="chain-viz" role="img" aria-label="A chain of hash-linked prediction records ending in a verified marker">
-            <div class="node"><span class="hashchip">2c1a…f704</span><span class="lbl">genesis</span></div>
-            <div class="link"></div>
-            <div class="node"><span class="hashchip">9f07…b3aa</span><span class="lbl">record 2</span></div>
-            <div class="link"></div>
-            <div class="node"><span class="hashchip">ae0b…d1e6</span><span class="lbl">record 3</span></div>
-            <div class="link"></div>
-            <div class="node head"><span class="hashchip">4736…0a85</span><span class="lbl">latest</span></div>
-            <div class="verified"><span class="vc">{_IC['check']}</span><span class="lbl">chain verified</span></div>
-          </div>
+          {chain_viz}
         </div>
       </div>
     </section>
@@ -425,12 +493,12 @@ def render_landing(*, signals=None, evidence=None, launch_url="#", hide_streamli
     <section class="evidence">
       <div class="wrap">
         <div class="sec-head">
-          <span class="eyebrow">Measured honestly</span>
-          <h2>The metrics that matter — with context</h2>
-          <p>Directional forecasting is hard, and we report it straight rather than behind a single flattering number.</p>
+          <span class="eyebrow">How the record is measured</span>
+          <h2>Validation method &amp; chain integrity</h2>
+          <p>Every forecast is logged before the outcome is known and scored against the next settled bar. Realised live accuracy accumulates on the Track Record page as scored predictions grow &mdash; that is where edge will be claimed or refuted.</p>
         </div>
         <div class="stat-row">{stats}</div>
-        <p class="fineprint">Three-way UP / SIDEWAYS / DOWN forecasting against a ~33% random baseline. Headline accuracy on its own is a poor summary of a directional model, so we lead with the figures that actually carry information — and let the live, verifiable record speak for itself over time.</p>
+        <p class="fineprint">Out-of-sample walk-forward backtest (WFV) &middot; independent test windows &middot; not curve-fit on the full history &middot; three-way UP / SIDEWAYS / DOWN against a ~33% random baseline. Live hit-rate, Wilson CI, and equity curve: <a href="./6_Track_Record" style="color:var(--gold);text-decoration:none">Track Record (page&nbsp;6)</a>.</p>
       </div>
     </section>
 

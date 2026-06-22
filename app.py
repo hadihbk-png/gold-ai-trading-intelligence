@@ -247,9 +247,41 @@ def _landing_signals_from_store():
         return {}
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def _landing_chain_proof():
+    """SHA-256 chain proof dict for the landing badge. Falls back to
+    {'unavailable': True} on any read or import failure — never raises."""
+    try:
+        from src.track_store_factory import make_sheets_store_from_secrets
+        from src.track_logger import verify_chain
+        records = make_sheets_store_from_secrets().read_all()
+        ok = verify_chain(records)
+        n = len(records)
+        if n == 0:
+            return {"n": 0, "ok": True, "genesis": None, "latest": None, "nodes": []}
+        interior = []
+        if n >= 3:
+            interior.append(records[n // 3]["record_hash"])
+        if n >= 4:
+            interior.append(records[2 * n // 3]["record_hash"])
+        return {
+            "n": n,
+            "ok": ok,
+            "genesis": records[0]["record_hash"],
+            "latest":  records[-1]["record_hash"],
+            "nodes":   interior,
+        }
+    except Exception:
+        return {"unavailable": True}
+
+
 def show_landing_page():
     from apex_landing_streamlit import render_landing
-    render_landing(signals=_landing_signals_from_store(), launch_url="?view=dashboard")
+    render_landing(
+        signals=_landing_signals_from_store(),
+        chain_proof=_landing_chain_proof(),
+        launch_url="?view=dashboard",
+    )
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
