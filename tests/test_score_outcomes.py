@@ -8,7 +8,9 @@ Tests for src/score_outcomes.py.
 
 from __future__ import annotations
 
+import importlib.util
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -23,6 +25,15 @@ from src.score_outcomes import (
     ROUND_TRIP_COST_BPS,
     score_all_pending,
 )
+
+
+def _load_script_module():
+    """Load scripts/score_outcomes.py by path (scripts/ is not a package)."""
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "score_outcomes.py"
+    spec = importlib.util.spec_from_file_location("_cli_score_outcomes", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 # ── Fixtures / helpers ─────────────────────────────────────────────────────────
 
@@ -232,3 +243,41 @@ def test_update_outcome_unknown_id(store):
     _log(store, raw_signal=2)
     with pytest.raises(KeyError):
         store.update_outcome("nonexistent_id", {"actual_price": 2100.0})
+
+
+# ── Test 8: --store flag selects the right store (no live API) ────────────────
+
+def test_build_store_local_default(tmp_path, monkeypatch):
+    """--store local returns a LocalJsonStore and never builds the Sheets store."""
+    import src.track_store_factory as factory
+
+    def _boom():
+        raise AssertionError("Sheets builder must not be called for --store local")
+
+    monkeypatch.setattr(factory, "make_sheets_store_from_secrets", _boom)
+
+    cli = _load_script_module()
+    built = cli.build_store("local", str(tmp_path / "predictions.jsonl"))
+    assert isinstance(built, LocalJsonStore)
+
+
+def test_build_store_sheets_uses_factory(monkeypatch):
+    """--store sheets delegates to make_sheets_store_from_secrets (mocked, no API)."""
+    import src.track_store_factory as factory
+
+    sentinel = object()
+    calls = {"n": 0}
+
+    def _fake_builder():
+        calls["n"] += 1
+        return sentinel
+
+    # Patch on the factory module: the CLI imports the name lazily at call time,
+    # so it resolves the patched attribute and the live Sheets API is never hit.
+    monkeypatch.setattr(factory, "make_sheets_store_from_secrets", _fake_builder)
+
+    cli = _load_script_module()
+    built = cli.build_store("sheets", "ignored/path.jsonl")
+
+    assert built is sentinel
+    assert calls["n"] == 1
