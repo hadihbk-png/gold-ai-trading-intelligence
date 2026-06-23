@@ -1,0 +1,104 @@
+name: Daily live outcome scoring
+
+# Runs `python scripts/score_outcomes.py --store sheets` once per day against the
+# live Google Sheets ledger so scored outcomes accumulate and the landing's
+# "today's read" never goes stale.
+#
+# Idempotent + chain-safe: the script skips already_scored rows and exits
+# non-zero if the SHA-256 chain fails to verify, which fails this job (red run +
+# GitHub failure email). No secrets are committed — .streamlit/secrets.toml is
+# rebuilt at runtime from repo secrets, is git-ignored, and lives only on the
+# ephemeral runner (deleted after the run).
+
+on:
+  schedule:
+    # 06:00 UTC daily. US/COMEX settled close is ~21:00-22:00 UTC; this runs the
+    # following ~01:00-02:00 ET, comfortably after the prior trading day's close
+    # and after the data source publishes the settled daily bar. A weekend /
+    # holiday run that scores nothing is expected and fine. cron is UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}   # manual trigger from the Actions tab — test before trusting cron
+
+# Never let two scoring runs write to the live Sheet at the same time.
+concurrency:
+  group: score-outcomes-live
+  cancel-in-progress: false
+
+permissions:
+  contents: read          # job only reads the repo; it writes to the Sheet, not git
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # matches local 3.11.9
+          cache: pip
+
+      - name: Install dependencies
+        # Full requirements.txt for safety against transitive imports. The
+        # scoring path doesn't touch the heavy ML libs, so this can be slimmed to
+        # streamlit/gspread/google-auth/pandas/numpy/yfinance once a run is green.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Write .streamlit/secrets.toml from repo secrets
+        # Rebuilds the exact file make_sheets_store_from_secrets() reads, so no
+        # application code changes. No `set -x`, and the file is never printed.
+        # GitHub masks registered secret values in logs.
+        #
+        # Private-key safety: GCP_SERVICE_ACCOUNT is the full service-account
+        # JSON (one secret). Python parses it and re-serializes each value with
+        # json.dumps, which emits a valid TOML basic string and escapes the
+        # private_key's newlines as \n. The TOML parser then restores them to
+        # real newlines for gspread — so the multiline key survives intact, which
+        # is the usual breakage point with naive `cat` heredocs.
+        env:
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          TRACK_SHEET_ID: ${{ secrets.TRACK_SHEET_ID }}
+          TRACK_WORKSHEET_NAME: ${{ secrets.TRACK_WORKSHEET_NAME }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          sa = json.loads(os.environ["GCP_SERVICE_ACCOUNT"])
+          lines = ["[gcp_service_account]"]
+          for k, v in sa.items():
+              lines.append(f"{k} = {json.dumps(v)}")
+          lines += ["", "[track_record]",
+                    f"sheet_id = {json.dumps(os.environ['TRACK_SHEET_ID'])}",
+                    f"worksheet_name = {json.dumps(os.environ['TRACK_WORKSHEET_NAME'])}"]
+          d = pathlib.Path(".streamlit"); d.mkdir(exist_ok=True)
+          (d / "secrets.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          # Presence-only confirmation — never prints values.
+          print(f"Wrote .streamlit/secrets.toml: {len(sa)} service-account keys, "
+                "track_record section set.")
+          PY
+
+      - name: Score live Sheet
+        # pipefail so a non-zero exit (e.g. chain_verified False, or any error)
+        # fails the step even though stdout/stderr is piped to tee.
+        run: |
+          set -o pipefail
+          python scripts/score_outcomes.py --store sheets 2>&1 | tee run.log
+
+      - name: Publish run summary
+        if: always()   # show scored/skipped/chain_verified output even on failure
+        run: |
+          {
+            echo "### APEX daily scoring run"
+            echo ""
+            echo '```'
+            cat run.log 2>/dev/null || echo "(no output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove runtime secrets file
+        if: always()   # belt-and-suspenders; the runner is ephemeral anyway
+        run: rm -f .streamlit/secrets.toml
