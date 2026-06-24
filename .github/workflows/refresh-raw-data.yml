@@ -1,0 +1,58 @@
+name: refresh-raw-data
+
+# Rebuilds data/raw_data.pkl from a clean (non-Yahoo-blocked) GitHub runner IP
+# and commits it, so Streamlit Cloud always serves current model inputs.
+# yfinance stays the data source -> the locked model sees the same vendor it
+# trained on (zero train/serve skew). No secrets needed (yfinance is keyless).
+#
+# Safe-by-construction: the refresh script validates the rebuilt frame and
+# exits non-zero on any problem, so the commit step is skipped on a bad/stale
+# fetch -- a stale pickle is never committed over a good one.
+
+on:
+  schedule:
+    # 22:30 UTC daily: after the US session has settled, captures that day's bar.
+    # GitHub free-tier scheduled runs are best-effort and may be delayed/skipped;
+    # a missed day self-heals on the next run and stays within the app's 1-day
+    # cache-staleness tolerance.
+    - cron: "30 22 * * *"
+  workflow_dispatch: {}   # manual trigger from the Actions tab (test before trusting cron)
+
+# Allow the job to push the refreshed pickle back to the branch.
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-raw-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install data-fetch deps (pinned to match the app)
+        run: pip install --quiet "yfinance>=0.2.40" "pandas>=2.0.0" "numpy>=1.26.4,<2.0.0"
+
+      - name: Rebuild and validate raw_data.pkl
+        run: python scripts/refresh_raw_data.py
+
+      - name: Commit refreshed pickle if it changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/raw_data.pkl
+          if git diff --staged --quiet; then
+            echo "No change in raw_data.pkl -- nothing to commit."
+          else
+            git commit -m "data: refresh raw_data.pkl (automated, clean-IP fetch)"
+            git push
+            echo "Refreshed pickle committed and pushed."
+          fi
