@@ -7,6 +7,10 @@ catboost_info/
 *.bak
 .claude/
 data/*.pkl
+# raw_data.pkl is intentionally TRACKED: it's a build artifact refreshed daily
+# by .github/workflows/refresh-raw-data.yml from a clean IP, so Streamlit Cloud
+# (where yfinance is blocked) always serves current model data. Do not git rm it.
+!data/raw_data.pkl
 data/risk_alert_state.json
 data/last_alert_date.txt
 data/model_retrain_log.json
