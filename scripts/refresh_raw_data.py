@@ -13,15 +13,22 @@ WHY
 HOW
     It calls the app's OWN builder, download_data(force_refresh=True), so the
     pickle is byte-faithful to what the app expects -- no schema drift, no
-    reimplementation of the fetch. download_data writes data/raw_data.pkl as a
-    side effect on a successful fresh fetch.
+    reimplementation of the fetch.
+
+CLOUD PANDAS COMPATIBILITY (added 2026-06-24)
+    Newer pandas (3.x) stores string COLUMN NAMES as the new StringDtype.
+    An older pandas on Streamlit Cloud cannot unpickle that
+    ("Failed to load data: StringDtype(...)"). After validation, this script
+    coerces the columns Index back to plain object dtype (data columns are left
+    untouched) and re-writes the cache, so any pandas 2.x can read it. The
+    workflow also pins pandas <2.3 as a first line of defense.
 
 DEFENSIVE
-    Validates the rebuilt frame: primary OHLCV present, every expected aux
-    *_Close column present, sane row count, and a RECENT last bar. If anything
-    is off (e.g. the fetch failed and download_data fell back to the stale
-    cache), it exits non-zero so the workflow goes RED and the commit step is
-    skipped -- a bad/stale pickle is never committed over a good one.
+    Validates the rebuilt frame (primary OHLCV present, every expected aux
+    *_Close column present, sane row count, RECENT last bar). If anything is
+    off (e.g. the fetch failed and download_data fell back to the stale cache),
+    it exits non-zero so the workflow goes RED and the commit step is skipped --
+    a bad/stale pickle is never committed over a good one.
 
 Usage (from repo root):
     python scripts/refresh_raw_data.py
@@ -30,6 +37,8 @@ Usage (from repo root):
 from __future__ import annotations
 
 import datetime as dt
+import os
+import pickle
 import sys
 from pathlib import Path
 
@@ -37,7 +46,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.config import PRIMARY_TICKER, TICKERS
+from src.config import DATA_DIR, PRIMARY_TICKER, TICKERS
 from src.data_loader import download_data
 
 MAX_AGE_DAYS = 4      # tolerate a weekend / single-holiday gap
@@ -93,7 +102,18 @@ def main() -> None:
             print(f"   - {p}")
         sys.exit(1)
 
-    print("OK: rebuilt frame passed all checks; pickle written by download_data.")
+    # -- Cloud pandas-compatibility guard --------------------------------------
+    # Coerce the column Index to plain object dtype (leaves float data columns
+    # as-is) and re-write the cache so an older pandas on Cloud can unpickle it.
+    cache_path = os.path.join(DATA_DIR, "raw_data.pkl")
+    before = str(df.columns.dtype)
+    df.columns = df.columns.astype(object)
+    with open(cache_path, "wb") as f:
+        pickle.dump(df, f, protocol=4)
+    print(
+        f"OK: passed all checks. Column index dtype '{before}' -> 'object'; "
+        f"re-wrote {cache_path} (protocol=4) for Cloud pandas compatibility."
+    )
 
 
 if __name__ == "__main__":

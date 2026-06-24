@@ -5,6 +5,11 @@ name: refresh-raw-data
 # yfinance stays the data source -> the locked model sees the same vendor it
 # trained on (zero train/serve skew). No secrets needed (yfinance is keyless).
 #
+# pandas is pinned <2.3 so the runner builds object-dtype string columns that
+# the older pandas on Streamlit Cloud can unpickle. (pandas 3.x stores column
+# names as the new StringDtype, which older pandas cannot load.) The refresh
+# script also coerces columns to object as a second safeguard.
+#
 # Safe-by-construction: the refresh script validates the rebuilt frame and
 # exits non-zero on any problem, so the commit step is skipped on a bad/stale
 # fetch -- a stale pickle is never committed over a good one.
@@ -38,8 +43,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install data-fetch deps (pinned to match the app)
-        run: pip install --quiet "yfinance>=0.2.40" "pandas>=2.0.0" "numpy>=1.26.4,<2.0.0"
+      - name: Install data-fetch deps (pinned to match Cloud's pandas)
+        run: pip install --quiet "yfinance>=0.2.40" "pandas>=2.2.0,<2.3.0" "numpy>=1.26.4,<2.0.0"
 
       - name: Rebuild and validate raw_data.pkl
         run: python scripts/refresh_raw_data.py
