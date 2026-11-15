@@ -116,7 +116,7 @@ def _price_silver() -> tuple:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _price_platinum() -> tuple:
-    return get_platinum_price()
+    return get_platinum_price(_TD_KEY, _AV_KEY)
 
 
 @st.cache_data(ttl=300, show_spinner=False)

@@ -343,9 +343,9 @@ def _load_silver_price(av_key: str) -> tuple:
     return get_silver_price(av_key)
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _load_platinum_price() -> tuple:
+def _load_platinum_price(td_key: str = "", av_key: str = "") -> tuple:
     from src.data_loader import get_platinum_price
-    return get_platinum_price()
+    return get_platinum_price(td_key, av_key)
 
 @st.cache_data(ttl=3600, show_spinner="Loading metal data…")
 def _load_metal_data(ticker: str, refresh_key: int) -> pd.DataFrame:
@@ -837,6 +837,7 @@ if selected_metal != "🥇 Gold (XAU)":
         _fx_uae_time_m = ""
 
     _av_key_m = st.secrets.get("ALPHA_VANTAGE_API_KEY", av_key_input)
+    _td_key_m = st.secrets.get("TWELVE_DATA_API_KEY", os.environ.get("TWELVE_DATA_API_KEY", ""))
 
     # ── Load OHLCV data once (chart + daily change + DIC features) ───────────
     _mdf = pd.DataFrame()
@@ -851,7 +852,7 @@ if selected_metal != "🥇 Gold (XAU)":
         if _is_silver:
             _met_price, _met_src = _load_silver_price(_av_key_m)
         else:
-            _met_price, _met_src = _load_platinum_price()
+            _met_price, _met_src = _load_platinum_price(_td_key_m, _av_key_m)
     except Exception:
         pass
 

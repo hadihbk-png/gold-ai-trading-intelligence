@@ -304,14 +304,48 @@ def get_silver_price(av_api_key: str = "") -> tuple:
 
 # ── Platinum spot price waterfall ──────────────────────────────────────────────
 
-def get_platinum_price() -> tuple:
+def get_platinum_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
     """
-    Platinum spot price waterfall:
-    1. yfinance PL=F (platinum futures)
-    2. yfinance PPLT (platinum ETF proxy)
+    Platinum spot price waterfall (REST-first so it works on Streamlit Cloud):
+    1. Twelve Data XPT/USD (REST — not IP-blocked on cloud)
+    2. Alpha Vantage XPT/USD (REST)
+    3. yfinance PL=F (futures — local only)
+    4. yfinance PPLT (ETF proxy — local only)
     Returns (price_or_None, source_label).
     """
-    # Method 1: yfinance PL=F
+    import requests
+
+    if td_api_key:
+        _resp = None
+        try:
+            _resp = requests.get(
+                "https://api.twelvedata.com/price",
+                params={"symbol": "XPT/USD", "apikey": td_api_key},
+                timeout=5,
+            )
+            price = float(_resp.json()["price"])
+            if price > 100:
+                return price, "Twelve Data (live)"
+        except Exception as e:
+            _st = getattr(_resp, "status_code", "N/A")
+            print(f"Warning - Twelve Data XPT: {e} | HTTP {_st}")
+
+    if av_api_key:
+        try:
+            resp = requests.get(
+                "https://www.alphavantage.co/query",
+                params={"function": "CURRENCY_EXCHANGE_RATE",
+                        "from_currency": "XPT", "to_currency": "USD",
+                        "apikey": av_api_key},
+                timeout=5,
+            )
+            rate_info = resp.json().get("Realtime Currency Exchange Rate", {})
+            price = float(rate_info.get("5. Exchange Rate", 0))
+            if price > 100:
+                return price, "Alpha Vantage XPT (live)"
+        except Exception:
+            pass
+
     try:
         d = yf.download("PL=F", period="5d", progress=False, auto_adjust=True)
         d = _flatten(d)
@@ -322,7 +356,6 @@ def get_platinum_price() -> tuple:
     except Exception:
         pass
 
-    # Method 2: yfinance PPLT (Aberdeen Physical Platinum ETF)
     try:
         d = yf.download("PPLT", period="5d", progress=False, auto_adjust=True)
         d = _flatten(d)
