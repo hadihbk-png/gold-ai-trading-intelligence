@@ -1,16 +1,16 @@
 """
-APEX Metals AI — Portfolio Tracker (Tier 3 · item 1)
+APEX Metals AI — Portfolio Tracker (Tier 3 · item 1 + persistence)
 
-Session-based holdings tracker. Enter quantity (troy oz) and average cost
-(USD/oz) per metal; the page pulls live spot prices (the same feeds the
-Dashboard uses) and FX rates, then shows cost basis, market value, and
-unrealized P&L in USD and a chosen second currency (default AED).
+Enter quantity (troy oz) and average cost (USD/oz) per metal; the page pulls
+live spot prices (same feeds as the Dashboard) and FX rates, then shows cost
+basis, market value, and unrealized P&L in USD and a chosen second currency.
 
-READ-ONLY on prices. Purely additive — does NOT touch models, thresholds,
-signals, risk, or the verdict gate.
+Holdings persist to a 'portfolio' tab in the SAME Google Sheet used for the
+track record — separate from the prediction ledger (the hash chain is never
+touched). If the sheet is unavailable, the page falls back to session-only.
 
-MVP scope: holdings live in st.session_state (cleared on a full reload).
-Google Sheet persistence is the planned next step.
+READ-ONLY on prices. Additive — does NOT touch models, thresholds, signals,
+risk, the verdict gate, or the prediction ledger.
 """
 from __future__ import annotations
 
@@ -34,7 +34,65 @@ st.set_page_config(page_title="APEX — Portfolio", page_icon="📊", layout="wi
 
 METALS = ["Gold", "Silver", "Platinum"]
 
+# ── Persistence: a 'portfolio' tab in the track-record Google Sheet ───────────
+_PORTFOLIO_WS = "portfolio"
+_HEADERS = ["metal", "qty_oz", "entry_usd", "updated_utc"]
 
+
+def _portfolio_worksheet():
+    """Open (or create) the 'portfolio' tab in the track-record sheet."""
+    import gspread
+    try:
+        from gspread.exceptions import WorksheetNotFound
+    except Exception:
+        WorksheetNotFound = Exception
+
+    sa_info = dict(st.secrets["gcp_service_account"])
+    tr = st.secrets["track_record"]
+    gc = gspread.service_account_from_dict(sa_info)
+    sh = gc.open_by_key(tr["sheet_id"])
+    try:
+        ws = sh.worksheet(_PORTFOLIO_WS)
+    except WorksheetNotFound:
+        ws = sh.add_worksheet(title=_PORTFOLIO_WS, rows=20, cols=len(_HEADERS))
+        ws.append_rows([_HEADERS], value_input_option="RAW")
+    return ws
+
+
+def load_holdings() -> tuple:
+    """Return ({metal: {'qty_oz', 'entry_usd'}}, available: bool)."""
+    try:
+        ws = _portfolio_worksheet()
+        out = {}
+        for r in ws.get_all_records():
+            m = str(r.get("metal", "")).strip()
+            if m in METALS:
+                out[m] = {
+                    "qty_oz": float(r.get("qty_oz", 0) or 0),
+                    "entry_usd": float(r.get("entry_usd", 0) or 0),
+                }
+        return out, True
+    except Exception:
+        return {}, False
+
+
+def save_holdings(holdings: dict) -> bool:
+    """Overwrite the 'portfolio' tab with current holdings. True on success."""
+    try:
+        ws = _portfolio_worksheet()
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rows = [_HEADERS]
+        for m in METALS:
+            v = holdings.get(m, {})
+            rows.append([m, float(v.get("qty_oz", 0)), float(v.get("entry_usd", 0)), now])
+        ws.clear()
+        ws.append_rows(rows, value_input_option="RAW")
+        return True
+    except Exception:
+        return False
+
+
+# ── API keys for live prices ─────────────────────────────────────────────────
 def _secret(name: str, default: str = "") -> str:
     try:
         return st.secrets.get(name, default)
@@ -46,7 +104,6 @@ _TD_KEY = _secret("TWELVE_DATA_API_KEY")
 _AV_KEY = _secret("ALPHA_VANTAGE_API_KEY")
 
 
-# ── Cached live-price fetchers (reuse the app's own source functions) ─────────
 @st.cache_data(ttl=60, show_spinner=False)
 def _price_gold() -> tuple:
     return get_live_spot_price(_TD_KEY, _AV_KEY)
@@ -71,9 +128,33 @@ def _live_prices() -> dict:
     return {"Gold": _price_gold(), "Silver": _price_silver(), "Platinum": _price_platinum()}
 
 
+# ── Load persisted holdings once per session ─────────────────────────────────
+for m in METALS:
+    st.session_state.setdefault(f"qty_{m}", 0.0)
+    st.session_state.setdefault(f"entry_{m}", 0.0)
+
+if "_portfolio_loaded" not in st.session_state:
+    _loaded, _available = load_holdings()
+    for m in METALS:
+        if m in _loaded:
+            st.session_state[f"qty_{m}"] = _loaded[m]["qty_oz"]
+            st.session_state[f"entry_{m}"] = _loaded[m]["entry_usd"]
+    st.session_state["_portfolio_loaded"] = True
+    st.session_state["_portfolio_persist"] = _available
+
+_persist = st.session_state.get("_portfolio_persist", False)
+
 # ── Header ───────────────────────────────────────────────────────────────────
 st.title("📊 Portfolio Tracker")
 st.caption("Personal research only · NOT financial advice · Live prices are delayed / indicative")
+
+if _persist:
+    st.success("Holdings persistence is ON — saved to your Google Sheet ('portfolio' tab).", icon="✅")
+else:
+    st.info(
+        "Holdings are session-only right now (Google Sheet not reachable). Your P&L still "
+        "works; entries clear on a full reload.", icon="ℹ️"
+    )
 
 # ── Currency ─────────────────────────────────────────────────────────────────
 _fx_data = _fx()
@@ -83,13 +164,9 @@ _default_idx = _ccy_options.index("AED") if "AED" in _ccy_options else 0
 _ccy = st.selectbox("Second display currency (USD is always shown)", _ccy_options, index=_default_idx)
 _rate = float(_rates.get(_ccy, 1.0))
 
-# ── Holdings input (held in session_state) ───────────────────────────────────
+# ── Holdings input ───────────────────────────────────────────────────────────
 st.subheader("Your holdings")
 st.caption("Quantity in troy ounces · average cost in USD per troy ounce.")
-
-for m in METALS:
-    st.session_state.setdefault(f"qty_{m}", 0.0)
-    st.session_state.setdefault(f"entry_{m}", 0.0)
 
 cols = st.columns(3)
 for i, m in enumerate(METALS):
@@ -97,6 +174,29 @@ for i, m in enumerate(METALS):
         st.markdown(f"**{m}**")
         st.number_input(f"{m} — quantity (oz)", min_value=0.0, step=0.1, key=f"qty_{m}")
         st.number_input(f"{m} — avg cost (USD/oz)", min_value=0.0, step=1.0, key=f"entry_{m}")
+
+# ── Save / Reload controls ───────────────────────────────────────────────────
+b1, b2, _sp = st.columns([1, 1, 3])
+with b1:
+    if st.button("💾 Save holdings", use_container_width=True, disabled=not _persist):
+        _h = {m: {"qty_oz": st.session_state[f"qty_{m}"],
+                  "entry_usd": st.session_state[f"entry_{m}"]} for m in METALS}
+        if save_holdings(_h):
+            st.session_state["_portfolio_saved_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            st.toast("Holdings saved to Google Sheet.", icon="✅")
+        else:
+            st.error("Could not save to the sheet — please try again.")
+with b2:
+    if st.button("↻ Reload from sheet", use_container_width=True, disabled=not _persist):
+        _loaded, _available = load_holdings()
+        for m in METALS:
+            st.session_state[f"qty_{m}"] = _loaded.get(m, {}).get("qty_oz", 0.0)
+            st.session_state[f"entry_{m}"] = _loaded.get(m, {}).get("entry_usd", 0.0)
+        st.session_state["_portfolio_persist"] = _available
+        st.rerun()
+
+if st.session_state.get("_portfolio_saved_at"):
+    st.caption(f"Last saved: {st.session_state['_portfolio_saved_at']}")
 
 # ── Compute ──────────────────────────────────────────────────────────────────
 prices = _live_prices()
