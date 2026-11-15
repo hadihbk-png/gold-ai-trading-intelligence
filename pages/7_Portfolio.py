@@ -1,0 +1,166 @@
+"""
+APEX Metals AI — Portfolio Tracker (Tier 3 · item 1)
+
+Session-based holdings tracker. Enter quantity (troy oz) and average cost
+(USD/oz) per metal; the page pulls live spot prices (the same feeds the
+Dashboard uses) and FX rates, then shows cost basis, market value, and
+unrealized P&L in USD and a chosen second currency (default AED).
+
+READ-ONLY on prices. Purely additive — does NOT touch models, thresholds,
+signals, risk, or the verdict gate.
+
+MVP scope: holdings live in st.session_state (cleared on a full reload).
+Google Sheet persistence is the planned next step.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from datetime import datetime, timezone
+
+import pandas as pd
+import streamlit as st
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from src.data_loader import (
+    get_live_spot_price,
+    get_silver_price,
+    get_platinum_price,
+    get_fx_rates,
+)
+
+st.set_page_config(page_title="APEX — Portfolio", page_icon="📊", layout="wide")
+
+METALS = ["Gold", "Silver", "Platinum"]
+
+
+def _secret(name: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+_TD_KEY = _secret("TWELVE_DATA_API_KEY")
+_AV_KEY = _secret("ALPHA_VANTAGE_API_KEY")
+
+
+# ── Cached live-price fetchers (reuse the app's own source functions) ─────────
+@st.cache_data(ttl=60, show_spinner=False)
+def _price_gold() -> tuple:
+    return get_live_spot_price(_TD_KEY, _AV_KEY)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _price_silver() -> tuple:
+    return get_silver_price(_AV_KEY)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _price_platinum() -> tuple:
+    return get_platinum_price()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fx() -> dict:
+    return get_fx_rates()
+
+
+def _live_prices() -> dict:
+    return {"Gold": _price_gold(), "Silver": _price_silver(), "Platinum": _price_platinum()}
+
+
+# ── Header ───────────────────────────────────────────────────────────────────
+st.title("📊 Portfolio Tracker")
+st.caption("Personal research only · NOT financial advice · Live prices are delayed / indicative")
+
+# ── Currency ─────────────────────────────────────────────────────────────────
+_fx_data = _fx()
+_rates = _fx_data.get("rates", {"USD": 1.0, "AED": 3.6725})
+_ccy_options = list(_rates.keys())
+_default_idx = _ccy_options.index("AED") if "AED" in _ccy_options else 0
+_ccy = st.selectbox("Second display currency (USD is always shown)", _ccy_options, index=_default_idx)
+_rate = float(_rates.get(_ccy, 1.0))
+
+# ── Holdings input (held in session_state) ───────────────────────────────────
+st.subheader("Your holdings")
+st.caption("Quantity in troy ounces · average cost in USD per troy ounce.")
+
+for m in METALS:
+    st.session_state.setdefault(f"qty_{m}", 0.0)
+    st.session_state.setdefault(f"entry_{m}", 0.0)
+
+cols = st.columns(3)
+for i, m in enumerate(METALS):
+    with cols[i]:
+        st.markdown(f"**{m}**")
+        st.number_input(f"{m} — quantity (oz)", min_value=0.0, step=0.1, key=f"qty_{m}")
+        st.number_input(f"{m} — avg cost (USD/oz)", min_value=0.0, step=1.0, key=f"entry_{m}")
+
+# ── Compute ──────────────────────────────────────────────────────────────────
+prices = _live_prices()
+rows = []
+tot_cost = 0.0
+tot_mv = 0.0
+missing_price = False
+
+for m in METALS:
+    qty = float(st.session_state[f"qty_{m}"])
+    entry = float(st.session_state[f"entry_{m}"])
+    if qty <= 0:
+        continue
+    price, source = prices[m]
+    cost = qty * entry
+    tot_cost += cost
+    if price:
+        mv = qty * price
+        tot_mv += mv
+        pnl = mv - cost
+        pnl_pct = (pnl / cost * 100) if cost > 0 else float("nan")
+    else:
+        mv = pnl = pnl_pct = float("nan")
+        missing_price = True
+    rows.append({
+        "Metal": m,
+        "Qty (oz)": round(qty, 4),
+        "Avg cost $/oz": round(entry, 2),
+        "Live $/oz": round(price, 2) if price else float("nan"),
+        "Cost $": round(cost, 2),
+        "Value $": round(mv, 2) if price else float("nan"),
+        "P&L $": round(pnl, 2) if price else float("nan"),
+        "P&L %": round(pnl_pct, 2) if price else float("nan"),
+        "Source": source,
+    })
+
+# ── Display ──────────────────────────────────────────────────────────────────
+st.subheader("Positions")
+if not rows:
+    st.info("Enter a quantity and average cost above to see your live P&L.")
+else:
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    tot_pnl = tot_mv - tot_cost
+    tot_pnl_pct = (tot_pnl / tot_cost * 100) if tot_cost > 0 else 0.0
+
+    st.markdown("### Portfolio totals")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cost basis (USD)", f"${tot_cost:,.2f}")
+    c2.metric("Market value (USD)", f"${tot_mv:,.2f}")
+    c3.metric("Unrealized P&L (USD)", f"${tot_pnl:,.2f}", delta=f"{tot_pnl_pct:+.2f}%")
+
+    st.markdown(
+        f"**In {_ccy}:**  cost {_ccy} {tot_cost*_rate:,.2f}  ·  "
+        f"value {_ccy} {tot_mv*_rate:,.2f}  ·  "
+        f"P&L {_ccy} {tot_pnl*_rate:,.2f} ({tot_pnl_pct:+.2f}%)"
+    )
+    if missing_price:
+        st.warning(
+            "One or more live prices were unavailable just now; those rows show "
+            "blanks and are left out of the totals. Try again shortly."
+        )
+
+st.caption(
+    f"FX fetched {_fx_data.get('fetched_utc', '—')} · USD→{_ccy} = {_rate:.4f} · "
+    f"prices cached ~60s · rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+)
