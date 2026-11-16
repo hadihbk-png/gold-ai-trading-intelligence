@@ -168,14 +168,7 @@ def generate_signal_explanation(signal_data: dict, api_key: str,
         msg = client.messages.create(
             model=_MODEL,
             max_tokens=400,
-            temperature=0.3,
-            system=[
-                {
-                    "type": "text",
-                    "text": _EXPL_SYSTEM,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=_EXPL_SYSTEM,
             messages=[
                 {
                     "role": "user",
@@ -215,14 +208,7 @@ def generate_morning_brief(
         msg = client.messages.create(
             model=_MODEL,
             max_tokens=500,
-            temperature=0.3,
-            system=[
-                {
-                    "type": "text",
-                    "text": _BRIEF_SYSTEM,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=_BRIEF_SYSTEM,
             messages=[
                 {
                     "role": "user",

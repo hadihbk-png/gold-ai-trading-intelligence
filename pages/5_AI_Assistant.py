@@ -186,13 +186,7 @@ if _chat_enabled and _signal is not None:
                 with _client.messages.stream(
                     model=_MODEL,
                     max_tokens=1024,
-                    system=[
-                        {
-                            "type": "text",
-                            "text": _system_prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ],
+                    system=_system_prompt,
                     messages=_history,
                 ) as _stream:
                     for _chunk in _stream.text_stream:
