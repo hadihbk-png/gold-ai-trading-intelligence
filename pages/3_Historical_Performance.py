@@ -276,6 +276,7 @@ else:
                 "Max DD (%)":        bt_m.get("Max Drawdown (%)", 0),
                 "Win Rate (%)":      bt_m.get("Win Rate (%)", 0),
                 "Profit Factor":     min(bt_m.get("Profit Factor", 0), 999),
+                "Expectancy ($)":    bt_m.get("Expectancy ($)", 0),
                 "Trades":            bt_m.get("Total Trades", 0),
             }], index=["AI Strategy"])
             combined = pd.concat([ai_row, bm_tbl])
