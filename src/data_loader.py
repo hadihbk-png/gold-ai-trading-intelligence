@@ -306,30 +306,35 @@ def get_silver_price(av_api_key: str = "") -> tuple:
 
 def get_platinum_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
     """
-    Platinum spot price waterfall (REST-first so it works on Streamlit Cloud):
-    1. Twelve Data XPT/USD (REST — not IP-blocked on cloud)
-    2. Alpha Vantage XPT/USD (REST)
-    3. yfinance PL=F (futures — local only)
-    4. yfinance PPLT (ETF proxy — local only)
+    Platinum spot price waterfall (cloud-safe):
+    1. Swissquote public feed XPT/USD (keyless REST — works on Streamlit Cloud)
+    2. Alpha Vantage XPT/USD (REST, if key present)
+    3. yfinance PL=F  (futures — fallback)
+    4. yfinance PPLT  (ETF proxy — fallback)
     Returns (price_or_None, source_label).
+
+    Note: Twelve Data XPT/USD requires the Grow/Venture plan (HTTP 404 on the
+    free/basic tier), so it is intentionally not used here.
     """
     import requests
 
-    if td_api_key:
-        _resp = None
-        try:
-            _resp = requests.get(
-                "https://api.twelvedata.com/price",
-                params={"symbol": "XPT/USD", "apikey": td_api_key},
-                timeout=5,
-            )
-            price = float(_resp.json()["price"])
-            if price > 100:
-                return price, "Twelve Data (live)"
-        except Exception as e:
-            _st = getattr(_resp, "status_code", "N/A")
-            print(f"Warning - Twelve Data XPT: {e} | HTTP {_st}")
+    # 1 - Swissquote public BBO feed (keyless, works on cloud)
+    try:
+        r = requests.get(
+            "https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XPT/USD",
+            timeout=6,
+        )
+        for entry in r.json():
+            for sp in entry.get("spreadProfilePrices", []):
+                bid, ask = sp.get("bid"), sp.get("ask")
+                if bid is not None and ask is not None:
+                    price = (float(bid) + float(ask)) / 2.0
+                    if price > 100:
+                        return round(price, 2), "Swissquote XPT/USD (live)"
+    except Exception as e:
+        print(f"Warning - Swissquote XPT: {e}")
 
+    # 2 - Alpha Vantage XPT/USD (if key present)
     if av_api_key:
         try:
             resp = requests.get(
@@ -337,7 +342,7 @@ def get_platinum_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
                 params={"function": "CURRENCY_EXCHANGE_RATE",
                         "from_currency": "XPT", "to_currency": "USD",
                         "apikey": av_api_key},
-                timeout=5,
+                timeout=6,
             )
             rate_info = resp.json().get("Realtime Currency Exchange Rate", {})
             price = float(rate_info.get("5. Exchange Rate", 0))
@@ -346,6 +351,7 @@ def get_platinum_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
         except Exception:
             pass
 
+    # 3 - yfinance PL=F (fallback)
     try:
         d = yf.download("PL=F", period="5d", progress=False, auto_adjust=True)
         d = _flatten(d)
@@ -356,6 +362,7 @@ def get_platinum_price(td_api_key: str = "", av_api_key: str = "") -> tuple:
     except Exception:
         pass
 
+    # 4 - yfinance PPLT (fallback)
     try:
         d = yf.download("PPLT", period="5d", progress=False, auto_adjust=True)
         d = _flatten(d)
