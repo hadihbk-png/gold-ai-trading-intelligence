@@ -8,17 +8,22 @@ REUSING the exact functions the Dashboard uses:
     - src.data_loader.download_data / download_metal_ohlcv + src.features
     - src.regime.get_current_regime
     - src.signals.generate_latest_signal
+    - src.data_loader.get_live_spot_price / get_silver_price / get_platinum_price
 
-No new modelling, no new data source. This module only READS model outputs and
-arranges them side by side.
+PRICE PARITY WITH THE DASHBOARD
+    The displayed price and daily-change mirror the Dashboard's headline price
+    exactly, including its (intentional) per-metal basis:
+      • Gold     : live Twelve Data spot; change = spot vs last futures close.
+      • Silver   : live waterfall (Alpha Vantage); change = live vs prior close.
+      • Platinum : live Swissquote waterfall; change = live vs prior close.
+    If a live feed is unavailable, it falls back to the model's last close (same
+    as the Dashboard). The Gold/Silver ratio uses gold's futures last close over
+    silver's live price — identical to the Dashboard.
 
-The verdict rule mirrors app.py:compute_decision_verdict. It is duplicated here
-as a pure function so this module can be imported by a page WITHOUT importing
-app.py (which would re-run the whole Dashboard). If the verdict rule in app.py
-changes, update _verdict() here to match.
-
-Additive and read-only: does NOT touch models, thresholds, the prediction
-ledger, or any existing file.
+No new modelling, no new data source. Additive and read-only: does NOT touch
+models, thresholds, the prediction ledger, or any existing file. The verdict
+rule mirrors app.py:compute_decision_verdict (kept in sync here as a pure
+function so this module need not import app.py).
 """
 from __future__ import annotations
 
@@ -124,7 +129,23 @@ def _load_bundle_and_df(metal_key: str):
     return df, bundle
 
 
-def _snapshot(meta: dict) -> dict:
+def _live_price(metal_key: str, td_key: str, av_key: str):
+    """Fetch the live spot price for a metal — SAME feeds as the Dashboard.
+    Returns (price_or_None, source_str)."""
+    from src.data_loader import (
+        get_live_spot_price, get_silver_price, get_platinum_price,
+    )
+    try:
+        if metal_key == "gold":
+            return get_live_spot_price(td_key, av_key)
+        if metal_key == "silver":
+            return get_silver_price(av_key)
+        return get_platinum_price(td_key, av_key)
+    except Exception as exc:
+        return None, f"unavailable ({exc})"
+
+
+def _snapshot(meta: dict, td_key: str = "", av_key: str = "") -> dict:
     """Build one metal's comparison snapshot. Never raises — errors go in 'error'."""
     from src.regime import get_current_regime
     from src.signals import generate_latest_signal
@@ -147,9 +168,29 @@ def _snapshot(meta: dict) -> dict:
             out["error"] = "signal unavailable"
             return out
 
-        price = float(sig.get("current_price") or df["Close"].iloc[-1])
-        prev = float(df["Close"].iloc[-2]) if len(df) > 1 else price
-        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        # ── Price + daily change: mirror the Dashboard headline exactly ──────
+        last_close = float(df["Close"].iloc[-1])
+        prev_close = float(df["Close"].iloc[-2]) if len(df) > 1 else last_close
+        live, price_src = _live_price(meta["key"], td_key, av_key)
+
+        if meta["key"] == "gold":
+            # Dashboard: live spot vs last futures close; else last vs prev close.
+            if live is not None:
+                price = float(live)
+                base = last_close
+            else:
+                price = last_close
+                base = prev_close
+                price_src = price_src or "last close"
+        else:
+            # Silver / Platinum: live vs PRIOR close; fallback to last close.
+            if live is not None:
+                price = float(live)
+            else:
+                price = last_close
+                price_src = "yfinance (last close)"
+            base = prev_close
+        change_pct = ((price - base) / base * 100) if base else 0.0
 
         conf_pct = sig.get("confidence_pct")
         conf = (conf_pct if conf_pct is not None else 50) / 100
@@ -205,8 +246,10 @@ def _snapshot(meta: dict) -> dict:
 
         out.update({
             "ok": True,
-            "price": price,
+            "price": price,                 # Dashboard headline price (live spot)
             "change_pct": change_pct,
+            "price_source": price_src,
+            "last_close": last_close,       # model's futures last close (for GSR)
             "signal": signal_label,
             "signal_int": sig["signal_int"],
             "signal_color": sig["signal_color"],
@@ -227,6 +270,10 @@ def _snapshot(meta: dict) -> dict:
         return out
 
 
-def build_comparison() -> list:
-    """Return a list of per-metal snapshot dicts for Gold, Silver, Platinum."""
-    return [_snapshot(m) for m in METALS]
+def build_comparison(td_key: str = "", av_key: str = "") -> list:
+    """Return a list of per-metal snapshot dicts for Gold, Silver, Platinum.
+
+    Pass the Dashboard's API keys (TWELVE_DATA_API_KEY, ALPHA_VANTAGE_API_KEY)
+    so the price row uses the SAME live feeds the Dashboard shows.
+    """
+    return [_snapshot(m, td_key, av_key) for m in METALS]

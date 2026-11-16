@@ -6,12 +6,13 @@ daily change, signal + confidence, directional probabilities, regime, and the
 TRADE / CAUTION / NO-TRADE verdict — so the whole precious-metals picture reads
 at a glance instead of toggling one metal at a time.
 
-All values come from the SAME trained models and functions the Dashboard uses
-(via src/compare.py). This page is additive and READ-ONLY — it does not touch
-models, thresholds, the risk engine, the verdict gate, or the prediction ledger.
+Prices use the SAME live feeds as the Dashboard (Gold via Twelve Data, Silver
+via Alpha Vantage, Platinum via Swissquote), so the price row and Gold/Silver
+ratio match the Dashboard to the cent. Signals, probabilities and verdicts come
+from the same trained models (via src/compare.py).
 
-Prices shown are the latest completed daily close in USD (the price each signal
-was computed on). Live intraday prices and FX conversion live on the Dashboard.
+Additive and READ-ONLY — does not touch models, thresholds, the risk engine,
+the verdict gate, or the prediction ledger.
 """
 from __future__ import annotations
 
@@ -30,13 +31,17 @@ st.set_page_config(page_title="APEX — Compare", page_icon="⚖️", layout="wi
 st.markdown("# ⚖️ Multi-Metal Comparison")
 st.caption(
     "Gold · Silver · Platinum side by side · NOT financial advice · "
-    "prices = latest daily close (USD)"
+    "prices = live spot (USD), same feeds as the Dashboard"
 )
 
+# Same API keys the Dashboard uses, so the live price feeds match exactly.
+_TD_KEY = st.secrets.get("TWELVE_DATA_API_KEY", os.environ.get("TWELVE_DATA_API_KEY", ""))
+_AV_KEY = st.secrets.get("ALPHA_VANTAGE_API_KEY", "")
 
-@st.cache_data(ttl=300, show_spinner="Comparing Gold, Silver & Platinum…")
-def _get_comparison():
-    return build_comparison()
+
+@st.cache_data(ttl=120, show_spinner="Comparing Gold, Silver & Platinum…")
+def _get_comparison(td_key: str, av_key: str):
+    return build_comparison(td_key, av_key)
 
 
 col_a, col_b = st.columns([1, 5])
@@ -45,7 +50,7 @@ with col_a:
         _get_comparison.clear()
         st.rerun()
 
-metals = _get_comparison()
+metals = _get_comparison(_TD_KEY, _AV_KEY)
 ok_metals = [m for m in metals if m.get("ok")]
 
 if not ok_metals:
@@ -69,6 +74,10 @@ def _fmt_change(m):
     color = GREEN if c >= 0 else RED
     arrow = "▲" if c >= 0 else "▼"
     return f"<span style='color:{color}'>{arrow} {c:+.2f}%</span>"
+
+
+def _fmt_source(m):
+    return f"<span style='color:{MUTED};font-size:0.82em'>📡 {m.get('price_source', '—')}</span>"
 
 
 def _fmt_signal(m):
@@ -100,8 +109,9 @@ def _fmt_filter(m):
 
 # Rows: (label, cell-renderer). Each renderer takes a metal dict → HTML string.
 ROWS = [
-    ("Price (last close)", _fmt_price),
+    ("Price (live spot)", _fmt_price),
     ("Daily change", _fmt_change),
+    ("Price source", _fmt_source),
     ("Signal (next day)", _fmt_signal),
     ("Confidence", _fmt_conf),
     ("Prob ▲ UP", lambda m: _fmt_prob(m.get("p_up"), GREEN)),
@@ -158,8 +168,9 @@ with c1:
     st.markdown("##### Gold / Silver Ratio")
     g = next((m for m in ok_metals if m["name"] == "Gold"), None)
     s = next((m for m in ok_metals if m["name"] == "Silver"), None)
-    if g and s and s["price"]:
-        gsr = g["price"] / s["price"]
+    # Parity with the Dashboard: gold FUTURES last close ÷ silver LIVE price.
+    if g and s and s.get("price"):
+        gsr = g["last_close"] / s["price"]
         _tag = ("silver historically cheap" if gsr > 80
                 else "gold historically cheap" if gsr < 50
                 else "mid-range")
@@ -198,6 +209,8 @@ with c2:
 st.divider()
 _asof = next((m["as_of"] for m in ok_metals if m.get("as_of")), "—")
 st.caption(
-    f"Data as of {_asof} · signals, probabilities and verdicts computed from the "
-    f"same trained models as the Dashboard · research framework only, not financial advice."
+    f"Prices are live spot (same feeds as the Dashboard). Signals, probabilities "
+    f"and verdicts are computed on the latest completed daily close "
+    f"(as of {_asof}) from the same trained models as the Dashboard · "
+    f"research framework only, not financial advice."
 )
