@@ -2,8 +2,8 @@
 src/compare.py — Multi-Metal Comparison data builder (Tier 3 · item 2).
 
 Produces a UNIFORM snapshot (price, daily change, signal, confidence,
-directional probabilities, regime, verdict) for Gold, Silver and Platinum by
-REUSING the exact functions the Dashboard uses:
+directional probabilities, regime, verdict, rolling accuracy) for Gold, Silver
+and Platinum by REUSING the exact functions the Dashboard uses:
     - src.train.load_models / load_metal_models   (same trained models)
     - src.data_loader.download_data / download_metal_ohlcv + src.features
     - src.regime.get_current_regime
@@ -203,12 +203,14 @@ def _snapshot(meta: dict, td_key: str = "", av_key: str = "") -> dict:
         regime_bucket = _regime_bucket(regime_info.get("regime_label", ""))
 
         roll_acc = 0.35
+        roll_known = False
         stk = (bundle.get("clf_results") or {}).get("Stacking", {})
         sy, sp = stk.get("y_test"), stk.get("predictions")
         if sy is not None and sp is not None:
             arr = (np.array(sy) == np.array(sp)).astype(int)
             if len(arr) >= 5:
                 roll_acc = float(arr[-30:].mean())
+                roll_known = True
 
         nt = 0
         if conf < 0.50:
@@ -258,6 +260,7 @@ def _snapshot(meta: dict, td_key: str = "", av_key: str = "") -> dict:
             "p_side": (proba[1] * 100) if proba[1] is not None else None,
             "p_up": (proba[2] * 100) if proba[2] is not None else None,
             "regime": regime_info.get("regime_label", "—"),
+            "rolling_accuracy": (roll_acc if roll_known else None),  # 30d rolling, test set
             "verdict": verdict,
             "verdict_emoji": v_emoji,
             "verdict_color": v_color,
