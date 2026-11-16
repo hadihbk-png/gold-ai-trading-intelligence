@@ -1,15 +1,13 @@
 """
-TEMPORARY diagnostic — Anthropic API probe.
-
-The AI brief/assistant catches every error and returns None, so the real
-cause is hidden. This page makes one live call and shows the EXACT error.
-Read-only. DELETE this page after we've read the result.
+TEMPORARY diagnostic v2 — isolate the AI-brief failure.
+Runs three Anthropic calls to find exactly which parameter breaks it.
+Read-only. DELETE after reading the result.
 """
 import streamlit as st
 
 st.set_page_config(page_title="AI Probe", page_icon="🩺", layout="wide")
-st.title("🩺 Anthropic API probe (temporary)")
-st.caption("Surfaces why the AI brief/assistant fails on Cloud. Delete after use.")
+st.title("🩺 Anthropic API probe v2 (temporary)")
+st.caption("Finds exactly which call parameter breaks the brief. Delete after use.")
 
 
 def _secret(name: str, default: str = "") -> str:
@@ -21,37 +19,47 @@ def _secret(name: str, default: str = "") -> str:
 
 key = _secret("ANTHROPIC_API_KEY")
 MODEL = "claude-sonnet-4-6"
+SYS = (
+    "You are a professional gold market analyst writing a short daily brief "
+    "for an investor. Keep it under 50 words. Research context only, not advice."
+)
 
-st.subheader("Key & config (no secret values shown)")
-st.write(f"- `ANTHROPIC_API_KEY` present: **{bool(key)}**")
-st.write(f"- key length: **{len(key)}** characters")
-st.write(f"- starts with `sk-ant-`: **{key.startswith('sk-ant-') if key else False}**")
-st.write(f"- model in code: **{MODEL}**")
+st.write(f"key present: **{bool(key)}** · length **{len(key)}** · starts `sk-ant-`: "
+         f"**{key.startswith('sk-ant-') if key else False}** · model **{MODEL}**")
 
-st.subheader("Live test call")
-if not key:
-    st.error("No ANTHROPIC_API_KEY found in secrets.")
-else:
+
+def run(label: str, **kwargs):
+    st.markdown(f"**{label}**")
     try:
         import anthropic
-        st.write(f"- anthropic SDK version: **{anthropic.__version__}**")
         client = anthropic.Anthropic(api_key=key)
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=20,
-            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
-        )
-        text = resp.content[0].text if resp.content else "(empty)"
-        st.success(f"✅ SUCCESS — the model replied: {text}")
-        st.info("If this succeeds, the key + model work — the brief failure is elsewhere.")
+        resp = client.messages.create(model=MODEL, **kwargs)
+        txt = resp.content[0].text[:120] if resp.content else "(empty)"
+        st.success(f"✅ OK — {txt}")
     except Exception as e:
-        st.error(f"❌ FAILED — {type(e).__name__}")
-        st.code(str(e)[:1000])
-        st.info(
-            "What the error means:\n"
-            "- AuthenticationError / 401 → the key value is wrong/expired\n"
-            "- 'credit balance is too low' / 400 → add billing credits in the Anthropic Console\n"
-            "- NotFoundError / 404 model → model not available to this key\n"
-            "- RateLimitError / 429 → rate limited, retry\n"
-            "Send this whole screen to Claude."
-        )
+        st.error(f"❌ {type(e).__name__}")
+        st.code(str(e)[:900])
+
+
+if not key:
+    st.error("No ANTHROPIC_API_KEY in secrets.")
+else:
+    # A — simple call (already known to work)
+    run("A. Simple call (no system, no cache)",
+        max_tokens=20, messages=[{"role": "user", "content": "Reply with: OK"}])
+
+    # B — EXACTLY what the app does: system list WITH cache_control ephemeral
+    run("B. system list + cache_control:ephemeral  (THE APP'S CALL)",
+        max_tokens=200, temperature=0.3,
+        system=[{"type": "text", "text": SYS, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": "Write a two-line gold brief."}])
+
+    # C — same but WITHOUT cache_control (candidate fix)
+    run("C. plain system string, NO cache_control  (CANDIDATE FIX)",
+        max_tokens=200, temperature=0.3,
+        system=SYS,
+        messages=[{"role": "user", "content": "Write a two-line gold brief."}])
+
+    st.info("Diagnosis: if **B fails** and **A & C succeed**, the bug is the "
+            "`cache_control` on the short system prompt — the fix is to remove it. "
+            "Send all three results to Claude.")
